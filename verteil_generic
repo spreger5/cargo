@@ -1,0 +1,827 @@
+#!/bin/ksh
+#==============================================================================================
+#  Das
+#
+#     SSH-Hub-Menue-File       '<MC-CFG-Dir>/menu.master'
+#     SSH-Hub-Bindings-File   '<MC-CFG-Dir>/bindings'
+#     SSH-Hub-Hotlist-File    '<MC-CFG-Dir>/otlist'
+#     SSH-Hub-Inimaster-Files '<MC-CFG-Dir>ini.master' und 'panels.ini.master'
+#
+#  vom SSH-Hub aus auf die Maschinen der ZGI ins MC-CFG-Verzeichnis kopieren.
+#  Die Files 'ini.master', 'panels.ini.master' und 'menu.master' werden zudem auch als 'ini',
+#  bzw. 'panels.ini' oder 'menu' kopiert.
+#  Masterkopien dienen auf den Knoten nur als Backup oder sie werden fuer den User 'wasys'
+#  und dessen Logon-Profil benoetigt.
+#
+#  Hinweis: Hier werden *alle* ZGI-Knoten bedient (AIX und Linux).
+#
+#           Die Schwester-Prozedur 'verteil_generic.linux' bedient *nur* die Linux-Knoten und ist
+#           fuer die Verteilung von AIX *abweichenden* Versionen (wie z.B. 'ini.master.linux')
+#           zustaendig.
+#
+#  !!! Diese Prozedur am SSH-Hub ausfuehren !!!
+#
+#      Nach Aenderungen/Anpassungen an dieser Prozedur auf dem Windows-PC, muss man sie
+#      haendisch auf den SSH-Hub ins Verzeichnis '~/.mc' kopieren!
+#
+#  !!! Vorbedingung: - Das Menue-/Bindings-/...-File des MCs ('menu', 'bindings', ...)
+#  !!!                 muss bereits am SSH-Hub im VZ '~/.config/mc/' in der gewuenschten Form vorliegen,
+#  !!!                 d.h. das Master-File ist auf das entsprechene File haendisch kopiert worden.
+#  !!!                 Beim Ini-File hingegen muss das aktuelle File 'ini.master' vorliegen,
+#  !!!                 da dieses 1:1 (als 'ini.master') und als 'ini' kopiert wird. Gleiches gilt fuer
+#  !!!                 'panels.ini.master'.
+#
+#  !!!
+#  !!!               - Vom SSH-Hub aus wird es mit dieser Prozedur auf die einzelnen
+#  !!!                 ZGI-Maschinen kopiert.
+#
+#----------------------------------------------------------------------------------------------
+#
+#  D-Lib: C:/UtilNT/SFU/apps/util/MC_Ini_Menu
+#
+#  T-Lib: SSH-Hub: ~/.config/mc
+#
+#----------------------------------------------------------------------------------------------
+#  Parameter: 1. [muss] copyMenu         ... Menu-Datei     kopieren
+#                       copyBindings     ... Bindings-Datei kopieren
+#                       copyHotlist      ... Hotlist-Datei  kopieren
+#                       copyIniInimaster ... Inimaster-Datei (als Inimaster und als Ini-Datei) kopieren
+#                                            Panelsmaster-Datei (als Master und als Ini-Datei) kopieren
+#
+#   !!! Nur der 1. Parameter, der uebergeben wurde, wird ausgewertet und kommt somit zum Zug !!!
+#
+#----------------------------------------------------------------------------------------------
+#  Erstellt von: Gerhard Sprenger
+#            am: 30.06.2005
+#----------------------------------------------------------------------------------------------
+#  Aenderungen: !!! Nur Anpassungen an der Logik werden dokumentiert !!!
+#
+#              01. 23.12.2005  Sprenger
+#                  Redesign und Anpassungen an Power-5-Architketur (neue Zielhosts)
+#
+#              02. 08.02.2010  Sprenger
+#                  Statt der Menue-Datei kann auch die Bindings-Datei kopiert werden
+#
+#              03. 12.03.2010  Sprenger
+#                - Statt der Menue-Datei kann auch die Hotlist-Datei oder die
+#                  Ini- und Inimaster-Datei kopiert werden. Prozedur wurde von
+#                  'verteil_menu' in 'verteil_generic' umbenannt.
+#
+#              04. 22.01.2016  Sprenger
+#                  Neben der Datei 'menu' wird auch 'menu.master' kopiert.
+#
+#              05. 28.06.2016  Sprenger
+#                  'bindings' wird auch als 'mc.ext' kopiert.
+#
+#              06. 16.09.2016  Sprenger
+#                  Nicht mehr 'bindings' auf 'mc.ext' kopieren. Ab jetzt liegt fuer
+#                  'mc.ext' eine eigene Version vor. Diese wird nun kopiert.
+#
+#              07. 16.01.2019  Sprenger
+#                  Zusaetzlich 'panels.ini.master' kopieren.
+#
+#----------------------------------------------------------------------------------------------
+
+set -u       # Keine uninitialisierten Variablen zulassen
+
+#--- ANSI-Farben --------------------------------------------------------------------
+ansiEsc="\033["                         # 0x1B
+
+ansiF_HRoSw=${ansiEsc}'1;31;40m'
+ansiF_HGeSw=${ansiEsc}'1;33;40m'
+ansiF_HGrSw=${ansiEsc}'1;32;40m'
+ansiF_HWeSw=${ansiEsc}'1;37;40m'
+ansiF_NWeSw=${ansiEsc}'0;37;40m'
+
+sHostname=$(hostname)
+
+# --- Parameter pruefen/entgegen nehmen
+
+sParm=''
+
+if (($# > 0)); then
+   if [[ "$1" = 'copyMenu' ]]; then
+      sParm='M'
+   fi
+
+   if [[ "$sHostname" = 'aix0001a' ]]; then
+      # Am SSH-Hub direkt kopieren
+      cp -p /home/rpri275/.config/mc/menu.master /home/rpri275/.config/mc/menu
+   fi
+
+
+fi
+
+if (($# > 0)); then
+   if [[ "$1" = 'copyBindings' ]]; then
+      sParm='B'
+   fi
+fi
+
+if (($# > 0)); then
+   if [[ "$1" = 'copyHotlist' ]]; then
+      sParm='H'
+   fi
+fi
+
+if (($# > 0)); then
+   if [[ "$1" = 'copyIniInimaster' ]]; then
+      sParm='I'
+   fi
+fi
+
+
+if [[ "$sParm" = '' ]]; then
+
+   echo "${ansiF_HRoSw}"
+   echo "Achtung! Kein gueltiger Parameter spezifiziert!"
+   echo "         Deshalb wird die Prozedur $0 abgebrochen!!!"
+   echo "\007${ansiF_NWeSw}\n"
+
+   exit 12;
+fi
+
+
+#############################################################################
+#
+# Unterprogramm fuer Kopiervorgang.
+#
+# Folgende Variablen erwartet: $zielvz (inkl Hostname)
+#
+# Restl. Variable sind Konstante
+#
+#############################################################################
+
+copyfile()
+{
+
+#  echo "Quell-DSN: ${quelle}"
+#  echo "Ziel-Vz..: ${zielDSN}"
+
+ befehl1=""                                                     # Default. Vorerst leer
+ befehl2=""                                                     # Default. Vorerst leer
+ befehl3=""                                                     # Default. Vorerst leer
+ befehl4=""                                                     # Default. Vorerst leer
+
+ if [[ "$sParm" = 'M' ]]; then
+    befehl1="scp -p /home/rpri275/.config/mc/menu.master $zielvz/menu.master"
+    befehl2="scp -p /home/rpri275/.config/mc/menu.master $zielvz/menu"
+ fi
+
+ if [[ "$sParm" = 'B' ]]; then
+    befehl1="scp -p /home/rpri275/.config/mc/bindings $zielvz/bindings"
+    befehl2="scp -p /home/rpri275/.config/mc/mc.ext   $zielvz/mc.ext"
+ fi
+
+ if [[ "$sParm" = 'H' ]]; then
+    befehl1="scp -p /home/rpri275/.config/mc/hotlist $zielvz/hotlist"
+ fi
+
+ if [[ "$sParm" = 'I' ]]; then
+    befehl1="scp -p /home/rpri275/.config/mc/ini.master $zielvz/ini.master"
+    befehl2="scp -p /home/rpri275/.config/mc/ini.master $zielvz/ini"
+
+    #--- Seit 16.01.2019 zusaetzlich
+    befehl3="scp -p /home/rpri275/.config/mc/panels.ini.master $zielvz/panels.ini.master"
+    befehl4="scp -p /home/rpri275/.config/mc/panels.ini.master $zielvz/panels.ini"
+ fi
+
+
+ if [[ "$befehl1" != "" ]]; then
+    echo "$befehl1"
+    $befehl1
+ fi
+
+ if [[ "$befehl2" != "" ]]; then
+    echo "$befehl2"
+    $befehl2
+ fi
+
+ if [[ "$befehl3" != "" ]]; then
+    echo "$befehl3"
+    $befehl3
+ fi
+
+ if [[ "$befehl4" != "" ]]; then
+    echo "$befehl4"
+    $befehl4
+ fi
+
+
+}
+
+#----------------------------------------------------------------------------
+
+#--- AIX
+
+zielvz="rpri275@aix0001b:/home/rpri275/.config/mc";  copyfile  ### sekundaerer SSH-Hub --- 03.03.2011
+zielvz="rpri275@aix0004a:/home/rpri275/.config/mc";  copyfile  ### t-dpl-421 CVS
+zielvz="rpri275@aix0016a:/home/rpri275/.mc";         copyfile  ### t-dbs-4xx
+zielvz="rpri275@aix0016b:/home/rpri275/.mc";         copyfile  ### t-dbs-4xx
+zielvz="rpri275@aix0032a:/home/rpri275/.config/mc";  copyfile  ### x-dis-221
+zielvz="rpri275@aix0032b:/home/rpri275/.config/mc";  copyfile  ### x-dis-222
+zielvz="rpri275@aix0035a:/home/rpri275/.config/mc";  copyfile  ### x-prx-221
+zielvz="rpri275@aix0035b:/home/rpri275/.config/mc";  copyfile  ### x-prx-222
+zielvz="rpri275@aix0040a:/home/rpri275/.mc";         copyfile  ### t-aps-271 SMARAGD, ...
+zielvz="rpri275@aix0040b:/home/rpri275/.mc";         copyfile  ### t-aps-272 SMARAGD, ...
+zielvz="rpri275@aix0058a:/home/rpri275/.config/mc";  copyfile  ### p-wms-321
+zielvz="rpri275@aix0063a:/home/rpri275/.mc";    copyfile  ### p/t-dpl-271    SMARAGD DPL
+zielvz="rpri275@aix0068a:/home/rpri275/.mc";    copyfile  ### p-aps-271      SMARAGD, ...
+zielvz="rpri275@aix0068b:/home/rpri275/.mc";    copyfile  ### p-aps-272      SMARAGD, ...
+zielvz="rpri275@aix0072a:/home/rpri275/.mc";    copyfile  ### t-aps-2a1  SEPA-T
+zielvz="rpri275@aix0073a:/home/rpri275/.mc";    copyfile  ### p-aps-2a1  SEPA-P
+zielvz="rpri275@aix0073b:/home/rpri275/.mc";    copyfile  ### p-aps-2a2  SEPA-P
+#zielvz="rpri275@aix0097a:/home/rpri275/.mc";    copyfile  ### x-aps-301
+#zielvz="rpri275@aix0097b:/home/rpri275/.mc";    copyfile  ### x-aps-302
+#zielvz="rpri275@aix0098a:/home/rpri275/.mc";    copyfile  ### x-dpl-301
+#zielvz="rpri275@aix0099a:/home/rpri275/.mc";    copyfile  ### t-aps-401   neu per 13.07.2009
+#zielvz="rpri275@aix0099b:/home/rpri275/.mc";    copyfile  ### t-aps-402   neu per 13.07.2009
+#zielvz="rpri275@aix0100a:/home/rpri275/.mc";    copyfile  ### t-dpl-401   neu per 13.07.2009
+#zielvz="rpri275@aix0101a:/home/rpri275/.mc";    copyfile  ### t-dis-411   neu per 13.07.2009
+#zielvz="rpri275@aix0101b:/home/rpri275/.mc";    copyfile  ### t-dis-412   neu per 13.07.2009
+#zielvz="rpri275@aix0105a:/home/rpri275/.mc";    copyfile  ### p/l-aps-301   --- 26.08.2009
+#zielvz="rpri275@aix0105b:/home/rpri275/.mc";    copyfile  ### p/l-aps-302   --- 26.08.2009
+#zielvz="rpri275@aix0106a:/home/rpri275/.mc";    copyfile  ### p/l-dpl-301   --- 26.08.2009
+#zielvz="rpri275@aix0107a:/home/rpri275/.mc";    copyfile  ### v/n/b-aps-301 --- 26.08.2009
+#zielvz="rpri275@aix0107b:/home/rpri275/.mc";    copyfile  ### v/n/b-aps-302 --- 26.08.2009
+#zielvz="rpri275@aix0108a:/home/rpri275/.mc";    copyfile  ### v/n/b-dpl-301 --- 26.08.2009
+#zielvz="rpri275@aix0109a:/home/rpri275/.mc";    copyfile  ### p-dis-301 --- 25.08.2009
+#zielvz="rpri275@aix0109b:/home/rpri275/.mc";    copyfile  ### p-dis-302 --- 25.08.2009
+#zielvz="rpri275@aix0110a:/home/rpri275/.mc";    copyfile  ### x-dis-301 --- 25.08.2009
+#zielvz="rpri275@aix0110b:/home/rpri275/.mc";    copyfile  ### x-dis-302 --- 25.08.2009
+#zielvz="rpri275@aix0118a:/home/rpri275/.mc";    copyfile  ### t/i-wpe-401 neu per 04.06.2010 (FileNet-ProcessEngine 4.5.1)
+#zielvz="rpri275@aix0118b:/home/rpri275/.mc";    copyfile  ### t/i-wpe-402 neu per 04.06.2010 (FileNet-ProcessEngine 4.5.1)
+#zielvz="rpri275@aix0119a:/home/rpri275/.mc";    copyfile  ### x-wpe-301 --- 30.06.2010
+#zielvz="rpri275@aix0119b:/home/rpri275/.mc";    copyfile  ### x-wpe-302 --- 30.06.2010
+#zielvz="rpri275@aix0120a:/home/rpri275/.mc";    copyfile  ### v/n-wpe-301 --- 30.06.2010
+#zielvz="rpri275@aix0120b:/home/rpri275/.mc";    copyfile  ### v/n-wpe-302 --- 30.06.2010
+#zielvz="rpri275@aix0121a:/home/rpri275/.mc";    copyfile  ### p-wpe-301 --- 30.06.2010
+#zielvz="rpri275@aix0121b:/home/rpri275/.mc";    copyfile  ### p-wpe-302 --- 30.06.2010
+zielvz="rpri275@aix0128a:/home/rpri275/.mc";         copyfile  ### t-aps-211 Incentage
+zielvz="rpri275@aix0128b:/home/rpri275/.mc";         copyfile  ### t-aps-212 Incentage
+zielvz="rpri275@aix0164a:/home/rpri275/.config/mc";  copyfile  ### p-aps-211  --- 31.05.2012
+zielvz="rpri275@aix0164b:/home/rpri275/.config/mc";  copyfile  ### p-aps-212  --- 31.05.2012
+zielvz="rpri275@aix0180a:/home/rpri275/.config/mc";  copyfile  ### p-dis-241 --- 17.12.2012
+zielvz="rpri275@aix0180b:/home/rpri275/.config/mc";  copyfile  ### p-dis-242 --- 17.12.2012
+zielvz="rpri275@aix0181a:/home/rpri275/.config/mc";  copyfile  ### p-prx-241 --- 17.12.2012
+zielvz="rpri275@aix0181b:/home/rpri275/.config/mc";  copyfile  ### p-prx-242 --- 17.12.2012
+zielvz="rpri275@aix0190a:/home/rpri275/.config/mc";  copyfile  ### t-dis-401   neu per 04.02.2013
+zielvz="rpri275@aix0190b:/home/rpri275/.config/mc";  copyfile  ### t-dis-402   neu per 04.02.2013
+zielvz="rpri275@aix0191a:/home/rpri275/.config/mc";  copyfile  ### t-dis-413   neu per 04.02.2013
+zielvz="rpri275@aix0191b:/home/rpri275/.config/mc";  copyfile  ### t-dis-414   neu per 04.02.2013
+zielvz="rpri275@aix0193a:/home/rpri275/.config/mc";  copyfile  ### t-aps-413   neu per 04.02.2013
+zielvz="rpri275@aix0193b:/home/rpri275/.config/mc";  copyfile  ### t-aps-414   neu per 04.02.2013
+zielvz="rpri275@aix0194a:/home/rpri275/.config/mc";  copyfile  ### t-dpl-413   neu per 04.02.2013
+zielvz="rpri275@aix0200a:/home/rpri275/.config/mc";  copyfile  ### v/n/b/x-dis-31a1 --- 05.04.2013
+zielvz="rpri275@aix0200b:/home/rpri275/.config/mc";  copyfile  ### v/n/b/x-dis-31a2 --- 05.04.2013
+zielvz="rpri275@aix0203a:/home/rpri275/.config/mc";  copyfile  ### x-aps-31a1    --- 08.04.2013
+zielvz="rpri275@aix0203b:/home/rpri275/.config/mc";  copyfile  ### x-aps-31a2    --- 08.04.2013
+zielvz="rpri275@aix0204a:/home/rpri275/.config/mc";  copyfile  ### x-aps-31a3    --- 08.04.2013
+zielvz="rpri275@aix0204b:/home/rpri275/.config/mc";  copyfile  ### x-aps-31a4    --- 08.04.2013
+zielvz="rpri275@aix0205a:/home/rpri275/.config/mc";  copyfile  ### x-aps-31b1    --- 08.04.2013
+zielvz="rpri275@aix0205b:/home/rpri275/.config/mc";  copyfile  ### x-aps-31b2    --- 08.04.2013
+zielvz="rpri275@aix0206a:/home/rpri275/.config/mc";  copyfile  ### x-aps-31b3    --- 08.04.2013
+zielvz="rpri275@aix0206b:/home/rpri275/.config/mc";  copyfile  ### x-aps-31b4    --- 08.04.2013
+zielvz="rpri275@aix0207a:/home/rpri275/.config/mc";  copyfile  ### x-dpl-31a1    --- 12.04.2013
+zielvz="rpri275@aix0209a:/home/rpri275/.config/mc";  copyfile  ### v/b/n-aps-31a1 --- 08.04.2013
+zielvz="rpri275@aix0209b:/home/rpri275/.config/mc";  copyfile  ### v/b/n-aps-31a2 --- 08.04.2013
+zielvz="rpri275@aix0210a:/home/rpri275/.config/mc";  copyfile  ### v/b/n-dpl-31a1 --- 12.04.2013
+zielvz="rpri275@aix0211a:/home/rpri275/.config/mc";  copyfile  ### p-dis-31a1 --- 08.04.2013
+zielvz="rpri275@aix0211b:/home/rpri275/.config/mc";  copyfile  ### p-dis-31a2 --- 08.04.2013
+zielvz="rpri275@aix0214a:/home/rpri275/.config/mc";  copyfile  ### p-aps-31a1    --- 08.04.2013
+zielvz="rpri275@aix0214b:/home/rpri275/.config/mc";  copyfile  ### p-aps-31a2    --- 08.04.2013
+zielvz="rpri275@aix0215a:/home/rpri275/.config/mc";  copyfile  ### p-aps-31a3    --- 08.04.2013
+zielvz="rpri275@aix0215b:/home/rpri275/.config/mc";  copyfile  ### p-aps-31a4    --- 08.04.2013
+zielvz="rpri275@aix0216a:/home/rpri275/.config/mc";  copyfile  ### p-aps-31b1    --- 08.04.2013
+zielvz="rpri275@aix0216b:/home/rpri275/.config/mc";  copyfile  ### p-aps-31b2    --- 08.04.2013
+zielvz="rpri275@aix0217a:/home/rpri275/.config/mc";  copyfile  ### p-aps-31b3    --- 08.04.2013
+zielvz="rpri275@aix0217b:/home/rpri275/.config/mc";  copyfile  ### p-aps-31b4    --- 08.04.2013
+zielvz="rpri275@aix0218a:/home/rpri275/.config/mc";  copyfile  ### p-dpl-31a1    --- 12.04.2013
+zielvz="rpri275@aix0219a:/home/rpri275/.config/mc";  copyfile  ### p-dis-21a1 --- 05.12.2013
+zielvz="rpri275@aix0219b:/home/rpri275/.config/mc";  copyfile  ### p-dis-21a2 --- 05.12.2013
+zielvz="rpri275@aix0220a:/home/rpri275/.config/mc";  copyfile  ### p-dis-21b1 --- 05.12.2013
+zielvz="rpri275@aix0220b:/home/rpri275/.config/mc";  copyfile  ### p-dis-21b2 --- 05.12.2013
+zielvz="rpri275@aix0221a:/home/rpri275/.config/mc";  copyfile  ### p-prx-21a1 --- 05.12.2013
+zielvz="rpri275@aix0221b:/home/rpri275/.config/mc";  copyfile  ### p-prx-21a2 --- 05.12.2013
+zielvz="rpri275@aix0222a:/home/rpri275/.config/mc";  copyfile  ### p-prx-21a3 --- 05.12.2013
+zielvz="rpri275@aix0222b:/home/rpri275/.config/mc";  copyfile  ### p-prx-21a4 --- 05.12.2013
+zielvz="rpri275@aix0223a:/home/rpri275/.config/mc";  copyfile  ### p-prx-21b1 --- 05.12.2013
+zielvz="rpri275@aix0223b:/home/rpri275/.config/mc";  copyfile  ### p-prx-21b2 --- 05.12.2013
+zielvz="rpri275@aix0227a:/home/rpri275/.config/mc";  copyfile  ### t-aps-41e1  neu per 29.08.2013
+zielvz="rpri275@aix0228a:/home/rpri275/.config/mc";  copyfile  ### p/v-aps-31e1  --- 20.09.2013
+zielvz="rpri275@aix0230a:/home/rpri275/.config/mc";  copyfile  ### t-dis-42a1  neu per 16.10.2013
+zielvz="rpri275@aix0230b:/home/rpri275/.config/mc";  copyfile  ### t-dis-42a2  neu per 16.10.2013
+zielvz="rpri275@aix0231a:/home/rpri275/.config/mc";  copyfile  ### t-aps-42a1    --- 16.10.2013
+zielvz="rpri275@aix0231b:/home/rpri275/.config/mc";  copyfile  ### t-aps-42a2    --- 16.10.2013
+zielvz="rpri275@aix0232a:/home/rpri275/.config/mc";  copyfile  ### t-dpl-42a1    --- 16.10.2013
+zielvz="rpri275@aix0233a:/home/rpri275/.config/mc";  copyfile  ### v-aps-32a1 --- 29.11.2013
+zielvz="rpri275@aix0233b:/home/rpri275/.config/mc";  copyfile  ### v-aps-32a2 --- 29.11.2013
+zielvz="rpri275@aix0234a:/home/rpri275/.config/mc";  copyfile  ### v-dpl-32a1 --- 29.11.2013
+zielvz="rpri275@aix0235a:/home/rpri275/.config/mc";  copyfile  ### p-dis-32a1 --- 28.11.2013
+zielvz="rpri275@aix0235b:/home/rpri275/.config/mc";  copyfile  ### p-dis-32a2 --- 28.11.2013
+zielvz="rpri275@aix0236a:/home/rpri275/.config/mc";  copyfile  ### p-aps-32a1 --- 29.11.2013
+zielvz="rpri275@aix0236b:/home/rpri275/.config/mc";  copyfile  ### p-aps-32a2 --- 29.11.2013
+zielvz="rpri275@aix0237a:/home/rpri275/.config/mc";  copyfile  ### p-dpl-32a1 --- 29.11.2013
+zielvz="rpri275@aix0251a:/home/rpri275/.config/mc";  copyfile  ### t-aps-41d1  neu 09.01.2015 (Adobe Livecycle)
+zielvz="rpri275@aix0251b:/home/rpri275/.config/mc";  copyfile  ### t-aps-41d2  neu 09.01.2015 (Adobe Livecycle)
+#zielvz="rpri275@aix0252a:/home/rpri275/.mc";    copyfile  ### t-AAA/OCS-3 neu per 26.01.2015 (AAA/OCS in T2.9C) --- 31.08.2017
+#zielvz="rpri275@aix0252b:/home/rpri275/.mc";    copyfile  ### t-AAA/OCS-4 neu per 26.01.2015 (AAA/OCS in T2.9C) --- 31.08.2017
+#zielvz="rpri275@aix0253a:/home/rpri275/.mc";    copyfile  ### t-AAA/OCS-5 neu per 26.01.2015 (AAA/OCS in T2.9C) --- 31.08.2017
+#zielvz="rpri275@aix0253b:/home/rpri275/.mc";    copyfile  ### t-AAA/OCS-6 neu per 26.01.2015 (AAA/OCS in T2.9C) --- 31.08.2017
+zielvz="rpri275@aix0254a:/home/rpri275/.config/mc";  copyfile  ### t-aps-41c1  neu 27.01.2015 FileNet
+zielvz="rpri275@aix0254b:/home/rpri275/.config/mc";  copyfile  ### t-aps-41c2  neu 27.01.2015 FileNet
+zielvz="rpri275@aix0255a:/home/rpri275/.config/mc";  copyfile  ### v-aps-31d1 --- 13.04.2015
+zielvz="rpri275@aix0255b:/home/rpri275/.config/mc";  copyfile  ### v-aps-31d2 --- 13.04.2015
+zielvz="rpri275@aix0257a:/home/rpri275/.config/mc";  copyfile  ### v/n-aps-31c1 --- 16.04.2015
+zielvz="rpri275@aix0257b:/home/rpri275/.config/mc";  copyfile  ### v/n-aps-31c2 --- 16.04.2015
+zielvz="rpri275@aix0258a:/home/rpri275/.config/mc";  copyfile  ### x-aps-31c1 --- 16.04.2015
+zielvz="rpri275@aix0258b:/home/rpri275/.config/mc";  copyfile  ### x-aps-31c2 --- 16.04.2015
+zielvz="rpri275@aix0259a:/home/rpri275/.config/mc";  copyfile  ### p-aps-31d1 --- 13.04.2015
+zielvz="rpri275@aix0259b:/home/rpri275/.config/mc";  copyfile  ### p-aps-31d2 --- 13.04.2015
+#zielvz="rpri275@aix0264a:/home/rpri275/.mc";    copyfile  ### Triple-A/P --- 11.05.2016 --- 18.04.2018
+#zielvz="rpri275@aix0264b:/home/rpri275/.mc";    copyfile  ### Triple-A/P --- 11.05.2016 --- 18.04.2018
+zielvz="rpri275@aix0268a:/home/rpri275/.config/mc";  copyfile  ### p-aps-31c1 --- 22.01.2016
+zielvz="rpri275@aix0268b:/home/rpri275/.config/mc";  copyfile  ### p-aps-31c2 --- 22.01.2016
+zielvz="rpri275@aix0278a:/home/rpri275/.config/mc";  copyfile  ### t-aps-41k1 --- 26.04.2017
+zielvz="rpri275@aix0278b:/home/rpri275/.config/mc";  copyfile  ### t-aps-41k2 --- 26.04.2017
+
+#--- Linux
+
+#zielvz="rpri275@lnx0004a:/home/rpri275/.mc";           copyfile  ### p-mon-303 --- 12.05.2010 --- 03.09.2019
+zielvz="rpri275@lnx0039a:/home/rpri275/.mc";           copyfile  ### p-bld-301 --- 13.04.2010
+zielvz="rpri275@lnx0039b:/home/rpri275/.mc";           copyfile  ### p-bld-302 --- 13.04.2010
+#zielvz="rpri275@lnx0043a:/home/rpri275/.mc";           copyfile  ### t-dtd-403 --- 07.05.2010 dynaTrace-3.2.x-Server --- 05.02.2021
+#zielvz="rpri275@lnx0045a:/home/rpri275/.mc";           copyfile  ### v-dtd-303 --- 18.06.2010 v3.2.x --- 05.02.2021
+#zielvz="rpri275@lnx0048a:/home/rpri275/.mc";           copyfile  ### p-dtd-303 --- 30.09.2010 v3.2.x --- 05.02.2021
+zielvz="rpri275@lnx0052a:/home/rpri275/.mc";           copyfile  ### p-btt-401 --- 21.10.2010 Bugzilla-Server
+zielvz="rpri275@lnx0053a:/home/rpri275/.mc";           copyfile  ### t-prx-401   neu per 05.11.2010
+zielvz="rpri275@lnx0053b:/home/rpri275/.mc";           copyfile  ### t-prx-402   neu per 05.11.2010
+#zielvz="rpri275@lnx0054a:/home/rpri275/.mc";           copyfile  ### t-etl-1, neu per 10.12.2010 --- 18.04.2018
+#zielvz="rpri275@lnx0054b:/home/rpri275/.mc";           copyfile  ### t-etl-2, neu per 10.12.2010 --- 18.04.2018
+#zielvz="rpri275@lnx0055a:/home/rpri275/.mc";           copyfile  ### p-etl-1, neu per 04.05.2011 --- 05.02.2021
+#zielvz="rpri275@lnx0055b:/home/rpri275/.mc";           copyfile  ### p-etl-2, neu per 04.05.2011 --- 05.02.2021
+zielvz="rpri275@lnx0058a:/home/rpri275/.mc";           copyfile  ### t-aps-283
+zielvz="rpri275@lnx0060a:/home/rpri275/.mc";           copyfile  ### p-aps-283
+#zielvz="rpri275@lnx0069a:/home/rpri275/.mc";           copyfile  ### t-jme-401  --- 19.09.2013 JMeter-Server --- 05.02.2021
+#zielvz="rpri275@lnx0071a:/home/rpri275/.mc";           copyfile  ### t-sim-401  --- 19.09.2013 Simulations-Server --- 05.02.2021
+#zielvz="rpri275@lnx0078a:/home/rpri275/.mc";           copyfile  ### archdok    --- 24.09.2013 Architektur-Dokumentation --- 15.05.2020
+zielvz="rpri275@lnx0092a:/home/rpri275/.mc";           copyfile  ### t-log-41a1 --- 18.10.2013 Splunk-Server
+zielvz="rpri275@lnx0092b:/home/rpri275/.mc";           copyfile  ### t-log-41a2 --- 18.10.2013 Splunk-Server
+zielvz="rpri275@lnx0094a:/home/rpri275/.mc";           copyfile  ### p-sch-236a1, neu per 21.11.2013
+zielvz="rpri275@lnx0095a:/home/rpri275/.mc";           copyfile  ### p-dpl-236a1, neu per 21.11.2013
+zielvz="rpri275@lnx0096a:/home/rpri275/.mc";           copyfile  ### p-idx-236a1, neu per 21.11.2013
+zielvz="rpri275@lnx0096b:/home/rpri275/.mc";           copyfile  ### p-idx-236a2, neu per 21.11.2013
+zielvz="rpri275@lnx0116a:/home/rpri275/.mc";           copyfile  ### MySQL-Server der EB021 (frueher EB022), neu per 19.05.2016
+zielvz="rpri275@lnx0119a:/home/rpri275/.config/mc";    copyfile  ### ebk.lab-A, neu per 02.01.2015
+zielvz="rpri275@lnx0119b:/home/rpri275/.config/mc";    copyfile  ### ebk.lab-B, neu per 02.01.2015
+#zielvz="rpri275@lnx0120b:/home/rpri275/.mc";           copyfile  ### p-aps-243a2, neu per 17.07.2014 ARZNow in P2.43C --- 05.02.2021
+#zielvz="rpri275@lnx0132a:/home/rpri275/.config/mc";    copyfile  ### GitLab-Server P, neu per 16.02.2015 --- 05.02.2021
+zielvz="rpri275@lnx0133a:/home/rpri275/.config/mc";    copyfile  ### GitLab-Server V, neu per 16.02.2015
+zielvz="rpri275@lnx0134a:/home/rpri275/.mc";           copyfile  ### i-aps-41f1 --- 27.01.2015 WAS LibertyProfile
+zielvz="rpri275@lnx0134b:/home/rpri275/.mc";           copyfile  ### i-aps-41f2 --- 27.01.2015 WAS LibertyProfile
+#zielvz="rpri275@lnx0137a:/home/rpri275/.config/mc";    copyfile  ### Artifactory T/V, neu per 16.02.2015 --- 05.02.2021
+zielvz="rpri275@lnx0138a:/home/rpri275/.mc";           copyfile  ### Chef-Server T, neu per 11.02.2015
+zielvz="rpri275@lnx0142a:/home/rpri275/.config/mc";    copyfile  ### Artifactory P, neu per 16.02.2015
+zielvz="rpri275@lnx0143a:/home/rpri275/.mc";           copyfile  ### Chef-Server P, neu per 11.02.2015
+
+zielvz="rpri275@lnx0146a:/home/rpri275/.config/mc";    copyfile  ### Jenkins Master V, neu per 20.11.2015
+zielvz="rpri275@lnx0147a:/home/rpri275/.config/mc";    copyfile  ### Jenkins Slave1 V, neu per 20.11.2015
+zielvz="rpri275@lnx0148a:/home/rpri275/.config/mc";    copyfile  ### Jenkins Slave2 V, neu per 20.11.2015
+
+zielvz="rpri275@lnx0149a:/home/rpri275/.mc";           copyfile  ### f-aps-31f1 --- 13.11.2015 WAS LibertyProfile
+zielvz="rpri275@lnx0149b:/home/rpri275/.mc";           copyfile  ### f-aps-31f2 --- 13.11.2015 WAS LibertyProfile
+
+zielvz="rpri275@lnx0152a:/home/rpri275/.config/mc";    copyfile  ### jenkins master p, neu per 20.11.2015
+zielvz="rpri275@lnx0153a:/home/rpri275/.config/mc";    copyfile  ### Jenkins Slave1 P, neu per 20.11.2015
+zielvz="rpri275@lnx0154a:/home/rpri275/.config/mc";    copyfile  ### Jenkins Slave2 P, neu per 20.11.2015
+
+zielvz="rpri275@lnx0155a:/home/rpri275/.config/mc";    copyfile  ### t-isa-1    --- 18.04.2016 ISA-Server (Dump-Analyse)
+
+zielvz="rpri275@lnx0156a:/home/rpri275/.mc";           copyfile  ### p-aps-31g1 --- 13.11.2015 WAS LibertyProfile
+zielvz="rpri275@lnx0156b:/home/rpri275/.mc";           copyfile  ### p-aps-31g2 --- 13.11.2015 WAS LibertyProfile
+zielvz="rpri275@lnx0157a:/home/rpri275/.mc";           copyfile  ### p-aps-31g3 --- 13.11.2015 WAS LibertyProfile
+zielvz="rpri275@lnx0157b:/home/rpri275/.mc";           copyfile  ### p-aps-31g4 --- 13.11.2015 WAS LibertyProfile
+
+zielvz="rpri275@lnx0159a:/home/rpri275/.mc";           copyfile  ### x-aps-31g1 --- 13.11.2015 WAS LibertyProfile
+zielvz="rpri275@lnx0159b:/home/rpri275/.mc";           copyfile  ### x-aps-31g2 --- 13.11.2015 WAS LibertyProfile
+zielvz="rpri275@lnx0160a:/home/rpri275/.mc";           copyfile  ### x-aps-31g3 --- 13.11.2015 WAS LibertyProfile
+zielvz="rpri275@lnx0160b:/home/rpri275/.mc";           copyfile  ### x-aps-31g4 --- 13.11.2015 WAS LibertyProfile
+
+zielvz="rpri275@lnx0162a:/home/rpri275/.mc";           copyfile  ### t-aps-41f1 --- 13.11.2015 WAS LibertyProfile
+zielvz="rpri275@lnx0162b:/home/rpri275/.mc";           copyfile  ### t-aps-41f2 --- 13.11.2015 WAS LibertyProfile
+
+#zielvz="rpri275@lnx0163a:/home/rpri275/.mc";           copyfile  ### LAMP-Server Spaengler/P, neu per 19.05.2016 --- 08.04.2019
+
+zielvz="rpri275@lnx0167a:/home/rpri275/.mc";           copyfile  ### t-aps-41h1 --- 22.01.2016 WAS LibertyProfile
+zielvz="rpri275@lnx0167b:/home/rpri275/.mc";           copyfile  ### t-aps-41h2 --- 22.01.2016 WAS LibertyProfile
+
+#zielvz="rpri275@lnx0168a:/home/rpri275/.mc";           copyfile  ### t-aps-41i1 --- 22.01.2016 WAS LibertyProfile --- 18.04.2018
+#zielvz="rpri275@lnx0168b:/home/rpri275/.mc";           copyfile  ### t-aps-41i2 --- 22.01.2016 WAS LibertyProfile --- 18.04.2018
+
+zielvz="rpri275@lnx0169a:/home/rpri275/.mc";           copyfile  ### p-aps-31f1 --- 22.01.2016 WAS LibertyProfile
+zielvz="rpri275@lnx0169b:/home/rpri275/.mc";           copyfile  ### p-aps-31f2 --- 22.01.2016 WAS LibertyProfile
+
+zielvz="rpri275@lnx0175a:/home/rpri275/.config/mc";    copyfile  ### p-prx-25b1 --- 31.03.2016
+zielvz="rpri275@lnx0175b:/home/rpri275/.config/mc";    copyfile  ### p-prx-25b2 --- 31.03.2016
+
+#zielvz="rpri275@lnx0176a:/home/rpri275/.mc";           copyfile  ### LAMP-Server Spaengler/T, neu per 19.05.2016 --- 08.04.2019
+
+zielvz="rpri275@lnx0189a:/home/rpri275/.config/mc";    copyfile  ### P-HypoV-CI in P2.222C, neu per 01.07.2016
+
+zielvz="rpri275@lnx0190a:/home/rpri275/.config/mc";    copyfile  ### D-HypoV in T2.221C, neu per 01.07.2016
+zielvz="rpri275@lnx0191a:/home/rpri275/.config/mc";    copyfile  ### T-HypoV in T2.221C, neu per 01.07.2016
+
+zielvz="rpri275@lnx0195a:/home/rpri275/.config/mc";    copyfile  ### T-Unblu in T2.226C, neu per 01.07.2016
+
+zielvz="rpri275@lnx0201a:/home/rpri275/.config/mc";    copyfile  ### t-aps-42f1 --- 22.07.2016 Wildfly
+zielvz="rpri275@lnx0201b:/home/rpri275/.config/mc";    copyfile  ### t-aps-42f2 --- 22.07.2016 Wildfly
+
+zielvz="rpri275@lnx0202a:/home/rpri275/.config/mc";    copyfile  ### v-aps-32f1 --- 19.12.2016 Wildfly
+zielvz="rpri275@lnx0202b:/home/rpri275/.config/mc";    copyfile  ### v-aps-32f2 --- 19.12.2016 Wildfly
+
+zielvz="rpri275@lnx0204a:/home/rpri275/.config/mc";    copyfile  ### T-EBICS in T2.229C, neu per 01.07.2016
+zielvz="rpri275@lnx0204b:/home/rpri275/.config/mc";    copyfile  ### T-EBICS in T2.229C, neu per 01.07.2016
+
+zielvz="rpri275@lnx0205a:/home/rpri275/.config/mc";    copyfile  ### T-Travic-Port/-Push in T2.229C, neu per 01.07.2016
+zielvz="rpri275@lnx0205b:/home/rpri275/.config/mc";    copyfile  ### T-Travic-Port/-Push in T2.229C, neu per 01.07.2016
+
+zielvz="rpri275@lnx0206a:/home/rpri275/.config/mc";    copyfile  ### V-HypoV in P2.221C, neu per 01.07.2016
+zielvz="rpri275@lnx0206b:/home/rpri275/.config/mc";    copyfile  ### V-HypoV in P2.221C, neu per 01.07.2016
+
+zielvz="rpri275@lnx0207a:/home/rpri275/.config/mc";    copyfile  ### P-HypoV in P2.221C, neu per 01.07.2016
+zielvz="rpri275@lnx0207b:/home/rpri275/.config/mc";    copyfile  ### P-HypoV in P2.221C, neu per 01.07.2016
+
+zielvz="rpri275@lnx0209a:/home/rpri275/.mc";           copyfile  ### v-aps-31h1 --- 01.09.2016 WAS LibertyProfile
+zielvz="rpri275@lnx0209b:/home/rpri275/.mc";           copyfile  ### v-aps-31h2 --- 01.09.2016 WAS LibertyProfile
+
+zielvz="rpri275@lnx0210a:/home/rpri275/.mc";           copyfile  ### I/T-Solr, neu per 01.09.2016
+zielvz="rpri275@lnx0210b:/home/rpri275/.mc";           copyfile  ### I/T-Solr, neu per 01.09.2016
+
+zielvz="rpri275@lnx0211a:/home/rpri275/.config/mc";    copyfile  ### v-prx-25b1 --- 28.10.2016
+zielvz="rpri275@lnx0211b:/home/rpri275/.config/mc";    copyfile  ### v-prx-25b2 --- 28.10.2016
+
+zielvz="rpri275@lnx0212a:/home/rpri275/.config/mc";    copyfile  ### P-Unblu, neu per 01.09.2016
+zielvz="rpri275@lnx0213a:/home/rpri275/.config/mc";    copyfile  ### P-Unblu, neu per 01.09.2016
+
+zielvz="rpri275@lnx0214a:/home/rpri275/.config/mc";    copyfile  ### V/X-Solr, neu per 01.09.2016
+zielvz="rpri275@lnx0214b:/home/rpri275/.config/mc";    copyfile  ### V/X-Solr, neu per 01.09.2016
+
+zielvz="rpri275@lnx0215a:/home/rpri275/.mc";           copyfile  ### P-Solr, neu per 01.09.2016
+zielvz="rpri275@lnx0215b:/home/rpri275/.mc";           copyfile  ### P-Solr, neu per 01.09.2016
+
+zielvz="rpri275@lnx0217a:/home/rpri275/.config/mc";    copyfile  ### V-Travic-Corporate, neu per 20.11.2016
+zielvz="rpri275@lnx0217b:/home/rpri275/.config/mc";    copyfile  ### V-Travic-Corporate, neu per 20.11.2016
+
+zielvz="rpri275@lnx0218a:/home/rpri275/.config/mc";    copyfile  ### P-Travic-Corporate, neu per 20.11.2016
+zielvz="rpri275@lnx0218b:/home/rpri275/.config/mc";    copyfile  ### P-Travic-Corporate, neu per 20.11.2016
+
+zielvz="rpri275@lnx0225a:/home/rpri275/.config/mc";    copyfile  ### t-aps-41j1, neu per 02.12.2016
+zielvz="rpri275@lnx0225b:/home/rpri275/.config/mc";    copyfile  ### t-aps-41j2, neu per 02.12.2016
+
+zielvz="rpri275@lnx0226a:/home/rpri275/.config/mc";    copyfile  ### i-aps-41j1, neu per 02.12.2016
+zielvz="rpri275@lnx0226b:/home/rpri275/.config/mc";    copyfile  ### i-aps-41j2, neu per 02.12.2016
+
+zielvz="rpri275@lnx0228a:/home/rpri275/.config/mc";    copyfile  ### P-Addiko-Web (Addiko-Web/HP), neu per 24.02.2017
+zielvz="rpri275@lnx0228b:/home/rpri275/.config/mc";    copyfile  ### P-Addiko-Web (Addiko-Web/HP), neu per 24.02.2017
+
+zielvz="rpri275@lnx0229a:/home/rpri275/.config/mc";    copyfile  ### P-Addiko-CMS (Addiko-CMS), neu per 24.02.2017
+
+zielvz="rpri275@lnx0230a:/home/rpri275/.config/mc";    copyfile  ### V-TPO (Travic-Port/-Push), neu per 24.02.2017
+zielvz="rpri275@lnx0230b:/home/rpri275/.config/mc";    copyfile  ### V-TPO (Travic-Port/-Push), neu per 24.02.2017
+
+zielvz="rpri275@lnx0231a:/home/rpri275/.config/mc";    copyfile  ### P-TPO (Travic-Port/-Push), neu per 24.02.2017
+zielvz="rpri275@lnx0231b:/home/rpri275/.config/mc";    copyfile  ### P-TPO (Travic-Port/-Push), neu per 24.02.2017
+
+zielvz="rpri275@lnx0232a:/home/rpri275/.config/mc";    copyfile  ### veco001, neu per 21.12.2017
+zielvz="rpri275@lnx0232b:/home/rpri275/.config/mc";    copyfile  ### veco001, neu per 21.12.2017
+
+zielvz="rpri275@lnx0233a:/home/rpri275/.config/mc";    copyfile  ### peco001, neu per 28.12.2017
+zielvz="rpri275@lnx0233b:/home/rpri275/.config/mc";    copyfile  ### peco001, neu per 28.12.2017
+
+zielvz="rpri275@lnx0236a:/home/rpri275/.mc";           copyfile  ### t-aps-41l1 --- 31.08.2017 WAS LibertyProfile twlp856
+zielvz="rpri275@lnx0236b:/home/rpri275/.mc";           copyfile  ### t-aps-41l2 --- 31.08.2017 WAS LibertyProfile twlp856
+
+#zielvz="rpri275@lnx0238a:/home/rpri275/.config/mc";    copyfile  ### t-api001-1 --- 09.10.2017 --- 19.07.2019
+#zielvz="rpri275@lnx0238b:/home/rpri275/.config/mc";    copyfile  ### t-api001-2 --- 09.10.2017 --- 19.07.2019
+
+zielvz="rpri275@lnx0250a:/home/rpri275/.mc";           copyfile  ### tmco001, neu per 15.06.2018
+zielvz="rpri275@lnx0250b:/home/rpri275/.mc";           copyfile  ### tmco001, neu per 15.06.2018
+
+#zielvz="rpri275@lnx0251a:/home/rpri275/.config/mc";    copyfile  ### vapi001, neu per 21.12.2017 --- 19.07.2019
+#zielvz="rpri275@lnx0251b:/home/rpri275/.config/mc";    copyfile  ### vapi001, neu per 21.12.2017 --- 19.07.2019
+
+#zielvz="rpri275@lnx0252a:/home/rpri275/.config/mc";    copyfile  ### papi001, neu per 21.12.2017 --- 19.07.2019
+#zielvz="rpri275@lnx0252b:/home/rpri275/.config/mc";    copyfile  ### papi001, neu per 21.12.2017 --- 19.07.2019
+
+zielvz="rpri275@lnx0260a:/home/rpri275/.config/mc";    copyfile  ### p-aps-32f1 --- 26.06.2017 Wildfly
+zielvz="rpri275@lnx0260b:/home/rpri275/.config/mc";    copyfile  ### p-aps-32f2 --- 26.06.2017 Wildfly
+
+zielvz="rpri275@lnx0261a:/home/rpri275/.config/mc";    copyfile  ### t-SPoT-1 --- 26.06.2017
+zielvz="rpri275@lnx0261b:/home/rpri275/.config/mc";    copyfile  ### t-SPoT-1 --- 26.06.2017
+
+zielvz="rpri275@lnx0268a:/home/rpri275/.config/mc";    copyfile  ### ieco002, neu per 28.12.2017
+zielvz="rpri275@lnx0268b:/home/rpri275/.config/mc";    copyfile  ### ieco002, neu per 28.12.2017
+
+zielvz="rpri275@lnx0269a:/home/rpri275/.config/mc";    copyfile  ### teco004     neu per 21.12.2017
+zielvz="rpri275@lnx0269b:/home/rpri275/.config/mc";    copyfile  ### teco004     neu per 21.12.2017
+
+zielvz="rpri275@lnx0270a:/home/rpri275/.config/mc";    copyfile  ### ieco003, neu per 28.12.2017
+zielvz="rpri275@lnx0270b:/home/rpri275/.config/mc";    copyfile  ### ieco003, neu per 28.12.2017
+
+zielvz="rpri275@lnx0271a:/home/rpri275/.config/mc";    copyfile  ### t-eco003-1 --- 09.10.2017
+zielvz="rpri275@lnx0271b:/home/rpri275/.config/mc";    copyfile  ### t-eco003-2 --- 09.10.2017
+
+zielvz="rpri275@lnx0282a:/home/rpri275/.config/mc";    copyfile  ### v-eco003-1 --- 09.10.2017
+zielvz="rpri275@lnx0282b:/home/rpri275/.config/mc";    copyfile  ### v-eco003-2 --- 09.10.2017
+
+zielvz="rpri275@lnx0283a:/home/rpri275/.config/mc";    copyfile  ### peco003, neu per 28.12.2017
+zielvz="rpri275@lnx0283b:/home/rpri275/.config/mc";    copyfile  ### peco003, neu per 28.12.2017
+
+zielvz="rpri275@lnx0284a:/home/rpri275/.config/mc";    copyfile  ### peco002, neu per 28.12.2017
+zielvz="rpri275@lnx0284b:/home/rpri275/.config/mc";    copyfile  ### peco002, neu per 28.12.2017
+
+zielvz="rpri275@lnx0285a:/home/rpri275/.config/mc";    copyfile  ### veco002, neu per 21.12.2017
+zielvz="rpri275@lnx0285b:/home/rpri275/.config/mc";    copyfile  ### veco002, neu per 21.12.2017
+
+#zielvz="rpri275@lnx0288a:/home/rpri275/.config/mc";    copyfile  ### t-api002-1 --- 29.12.2017 --- 08.11.2019
+#zielvz="rpri275@lnx0288b:/home/rpri275/.config/mc";    copyfile  ### t-api002-2 --- 29.12.2017 --- 08.11.2019
+
+zielvz="rpri275@lnx0289a:/home/rpri275/.config/mc";    copyfile  ### t-api003-1 --- 29.12.2017
+zielvz="rpri275@lnx0289b:/home/rpri275/.config/mc";    copyfile  ### t-api003-2 --- 29.12.2017
+
+zielvz="rpri275@lnx0290a:/home/rpri275/.config/mc";    copyfile  ### t-api004-1 --- 29.12.2017
+zielvz="rpri275@lnx0290b:/home/rpri275/.config/mc";    copyfile  ### t-api004-2 --- 29.12.2017
+
+#zielvz="rpri275@lnx0291a:/home/rpri275/.config/mc";    copyfile  ### vapi002, neu per 29.12.2017 --- 08.11.2019
+#zielvz="rpri275@lnx0291b:/home/rpri275/.config/mc";    copyfile  ### vapi002, neu per 29.12.2017 --- 08.11.2019
+
+zielvz="rpri275@lnx0292a:/home/rpri275/.config/mc";    copyfile  ### vapi003, neu per 29.12.2017
+zielvz="rpri275@lnx0292b:/home/rpri275/.config/mc";    copyfile  ### vapi003, neu per 29.12.2017
+
+zielvz="rpri275@lnx0293a:/home/rpri275/.config/mc";    copyfile  ### vapi004, neu per 29.12.2017
+zielvz="rpri275@lnx0293b:/home/rpri275/.config/mc";    copyfile  ### vapi004, neu per 29.12.2017
+
+#zielvz="rpri275@lnx0294a:/home/rpri275/.config/mc";    copyfile  ### papi002, neu per 29.12.2017 --- 08.11.2019
+#zielvz="rpri275@lnx0294b:/home/rpri275/.config/mc";    copyfile  ### papi002, neu per 29.12.2017 --- 08.11.2019
+
+zielvz="rpri275@lnx0295a:/home/rpri275/.config/mc";    copyfile  ### papi003, neu per 29.12.2017
+zielvz="rpri275@lnx0295b:/home/rpri275/.config/mc";    copyfile  ### papi003, neu per 29.12.2017
+
+zielvz="rpri275@lnx0296a:/home/rpri275/.config/mc";    copyfile  ### papi004, neu per 29.12.2017
+zielvz="rpri275@lnx0296b:/home/rpri275/.config/mc";    copyfile  ### papi004, neu per 29.12.2017
+
+#zielvz="rpri275@lnx0298a:/home/rpri275/.config/mc";    copyfile  ### t-finAPI-1 --- 25.10.2017 --- 05.02.2021
+#zielvz="rpri275@lnx0298b:/home/rpri275/.config/mc";    copyfile  ### t-finAPI-2 --- 25.10.2017 --- 05.02.2021
+
+zielvz="rpri275@lnx0316a:/home/rpri275/.mc";           copyfile  ### vmco001, neu per 30.05.2018
+zielvz="rpri275@lnx0316b:/home/rpri275/.mc";           copyfile  ### vmco001, neu per 30.05.2018
+
+zielvz="rpri275@lnx0317a:/home/rpri275/.mc";           copyfile  ### nmco001, neu per 30.05.2018
+zielvz="rpri275@lnx0317b:/home/rpri275/.mc";           copyfile  ### nmco001, neu per 30.05.2018
+
+zielvz="rpri275@lnx0318a:/home/rpri275/.mc";           copyfile  ### pmco001, neu per 30.05.2018
+zielvz="rpri275@lnx0318b:/home/rpri275/.mc";           copyfile  ### pmco001, neu per 30.05.2018
+
+zielvz="rpri275@lnx0327a:/home/rpri275/.config/mc";    copyfile  ### neco002, neu per 28.12.2017
+zielvz="rpri275@lnx0327b:/home/rpri275/.config/mc";    copyfile  ### neco002, neu per 28.12.2017
+
+zielvz="rpri275@lnx0328a:/home/rpri275/.config/mc";    copyfile  ### neco001, neu per 21.12.2017
+zielvz="rpri275@lnx0328b:/home/rpri275/.config/mc";    copyfile  ### neco001, neu per 21.12.2017
+
+#zielvz="rpri275@lnx0333a:/home/rpri275/.config/mc";    copyfile  ### pfin001 (finAPI), neu per 21.12.2017 --- 05.02.2021
+#zielvz="rpri275@lnx0333b:/home/rpri275/.config/mc";    copyfile  ### pfin001 (finAPI), neu per 21.12.2017 --- 05.02.2021
+
+zielvz="rpri275@lnx0341a:/home/rpri275/.config/mc";    copyfile  ### ieco004, neu per 24.04.2018
+zielvz="rpri275@lnx0341b:/home/rpri275/.config/mc";    copyfile  ### ieco004, neu per 24.04.2018
+
+zielvz="rpri275@lnx0342a:/home/rpri275/.config/mc";    copyfile  ### teco004, neu per 24.04.2018
+zielvz="rpri275@lnx0342b:/home/rpri275/.config/mc";    copyfile  ### teco004, neu per 24.04.2018
+
+zielvz="rpri275@lnx0343a:/home/rpri275/.config/mc";    copyfile  ### veco004, neu per 24.04.2018
+zielvz="rpri275@lnx0343b:/home/rpri275/.config/mc";    copyfile  ### veco004, neu per 24.04.2018
+
+zielvz="rpri275@lnx0344a:/home/rpri275/.config/mc";    copyfile  ### peco004, neu per 24.04.2018
+zielvz="rpri275@lnx0344b:/home/rpri275/.config/mc";    copyfile  ### peco004, neu per 24.04.2018
+
+#zielvz="rpri275@lnx0345a:/home/rpri275/.config/mc";    copyfile  ### tswa001, neu per 14.11.2018 --- 05.02.2021
+
+zielvz="rpri275@lnx0348a:/home/rpri275/.config/mc";    copyfile  ### teco005, neu per 18.04.2018
+zielvz="rpri275@lnx0348b:/home/rpri275/.config/mc";    copyfile  ### teco005, neu per 18.04.2018
+
+zielvz="rpri275@lnx0349a:/home/rpri275/.config/mc";    copyfile  ### ieco005, neu per 18.04.2018
+zielvz="rpri275@lnx0349b:/home/rpri275/.config/mc";    copyfile  ### ieco005, neu per 18.04.2018
+
+zielvz="rpri275@lnx0350a:/home/rpri275/.config/mc";    copyfile  ### veco005, neu per 12.11.2018
+zielvz="rpri275@lnx0350b:/home/rpri275/.config/mc";    copyfile  ### veco005, neu per 12.11.2018
+
+zielvz="rpri275@lnx0351a:/home/rpri275/.config/mc";    copyfile  ### peco005, neu per 12.11.2018
+zielvz="rpri275@lnx0351b:/home/rpri275/.config/mc";    copyfile  ### peco005, neu per 12.11.2018
+
+zielvz="rpri275@lnx0352a:/home/rpri275/.mc";           copyfile  ### tmco002, neu per 30.05.2018
+zielvz="rpri275@lnx0352b:/home/rpri275/.mc";           copyfile  ### tmco002, neu per 30.05.2018
+
+zielvz="rpri275@lnx0353a:/home/rpri275/.config/mc";    copyfile  ### vspt001, neu per 18.05.2018  SPoT
+zielvz="rpri275@lnx0353b:/home/rpri275/.config/mc";    copyfile  ### vspt001, neu per 18.05.2018  SPoT
+
+zielvz="rpri275@lnx0354a:/home/rpri275/.config/mc";    copyfile  ### pspt001, neu per 18.05.2018  SPoT
+zielvz="rpri275@lnx0354b:/home/rpri275/.config/mc";    copyfile  ### pspt001, neu per 18.05.2018  SPoT
+
+zielvz="rpri275@lnx0357a:/home/rpri275/.config/mc";    copyfile  ### neco004, neu per 24.04.2018
+zielvz="rpri275@lnx0357b:/home/rpri275/.config/mc";    copyfile  ### neco004, neu per 24.04.2018
+
+zielvz='rpri275@lnx0360a:/home/rpri275/.config/mc';    copyfile  ### pbuild, neu per 05.03.2019
+zielvz='rpri275@lnx0360b:/home/rpri275/.config/mc';    copyfile  ### pbuild, neu per 05.03.2019
+
+#zielvz="rpri275@lnx0368a:/home/rpri275/.config/mc";    copyfile  ### V-SonarQube, neu per 06.09.2018 --- 05.02.2021
+
+#zielvz="rpri275@lnx0369a:/home/rpri275/.config/mc";    copyfile  ### P-SonarQube, neu per 06.09.2018 --- 05.02.2021
+
+zielvz="rpri275@lnx0373a:/home/rpri275/.config/mc";    copyfile  ### ieco006, neu per 06.09.2018
+zielvz="rpri275@lnx0373b:/home/rpri275/.config/mc";    copyfile  ### ieco006, neu per 06.09.2018
+
+zielvz='rpri275@lnx0374a:/home/rpri275/.config/mc';    copyfile  ### teco007a, neu per 25.01.2019
+zielvz='rpri275@lnx0374b:/home/rpri275/.config/mc';    copyfile  ### teco007b, neu per 25.01.2019
+
+zielvz='rpri275@lnx0375a:/home/rpri275/.config/mc';    copyfile  ### ieco007a, neu per 25.01.2019
+zielvz='rpri275@lnx0375b:/home/rpri275/.config/mc';    copyfile  ### ieco007b, neu per 25.01.2019
+
+zielvz='rpri275@lnx0376a:/home/rpri275/.config/mc';    copyfile  ### teco008a, neu per 25.01.2019
+
+zielvz="rpri275@lnx0377a:/home/rpri275/.config/mc";    copyfile  ### teco009, neu per 26.09.2018
+zielvz="rpri275@lnx0377b:/home/rpri275/.config/mc";    copyfile  ### teco009, neu per 26.09.2018
+
+zielvz="rpri275@lnx0378a:/home/rpri275/.config/mc";    copyfile  ### veco009, neu per 26.09.2018
+zielvz="rpri275@lnx0378b:/home/rpri275/.config/mc";    copyfile  ### veco009, neu per 26.09.2018
+
+zielvz="rpri275@lnx0379a:/home/rpri275/.config/mc";    copyfile  ### neco009, neu per 26.09.2018
+zielvz="rpri275@lnx0379b:/home/rpri275/.config/mc";    copyfile  ### neco009, neu per 26.09.2018
+
+zielvz="rpri275@lnx0380a:/home/rpri275/.config/mc";    copyfile  ### peco009, neu per 26.09.2018
+zielvz="rpri275@lnx0380b:/home/rpri275/.config/mc";    copyfile  ### peco009, neu per 26.09.2018
+
+#zielvz="rpri275@lnx0381a:/home/rpri275/.config/mc";    copyfile  ### ipoc001, neu per 06.09.2018 --- 08.11.2019
+
+#zielvz="rpri275@lnx0382a:/home/rpri275/.config/mc";    copyfile  ### ipoc002, neu per 06.09.2018 --- 08.11.2019
+
+#zielvz="rpri275@lnx0383a:/home/rpri275/.config/mc";    copyfile  ### ipoc003, neu per 06.09.2018 --- 08.11.2019
+
+#zielvz="rpri275@lnx0388a:/home/rpri275/.config/mc";    copyfile  ### ipoc004, neu per 05.10.2018 --- 08.11.2019
+
+zielvz='rpri275@lnx0400a:/home/rpri275/.config/mc';    copyfile  ### vcimon, neu per 25.01.2019
+
+zielvz='rpri275@lnx0401a:/home/rpri275/.config/mc';    copyfile  ### pcim001a, neu per 05.09.2019
+zielvz='rpri275@lnx0401b:/home/rpri275/.config/mc';    copyfile  ### pcim001b, neu per 05.09.2019
+
+zielvz='rpri275@lnx0403a:/home/rpri275/.config/mc';    copyfile  ### teco010a, neu per 25.01.2019
+zielvz='rpri275@lnx0403b:/home/rpri275/.config/mc';    copyfile  ### teco010b, neu per 25.01.2019
+
+zielvz='rpri275@lnx0404a:/home/rpri275/.config/mc';    copyfile  ### ieco010a, neu per 25.01.2019
+zielvz='rpri275@lnx0404b:/home/rpri275/.config/mc';    copyfile  ### ieco010b, neu per 25.01.2019
+
+zielvz='rpri275@lnx0405a:/home/rpri275/.config/mc';    copyfile  ### veco010a, neu per 29.01.2019
+zielvz='rpri275@lnx0405b:/home/rpri275/.config/mc';    copyfile  ### veco010b, neu per 29.01.2019
+
+zielvz='rpri275@lnx0406a:/home/rpri275/.config/mc';    copyfile  ### neco010a, neu per 29.01.2019
+zielvz='rpri275@lnx0406b:/home/rpri275/.config/mc';    copyfile  ### neco010b, neu per 29.01.2019
+
+zielvz='rpri275@lnx0407a:/home/rpri275/.config/mc';    copyfile  ### peco010a, neu per 29.01.2019
+zielvz='rpri275@lnx0407b:/home/rpri275/.config/mc';    copyfile  ### peco010b, neu per 29.01.2019
+
+zielvz='rpri275@lnx0422a:/home/rpri275/.config/mc';    copyfile  ### teco006a, neu per 25.01.2019
+zielvz='rpri275@lnx0422b:/home/rpri275/.config/mc';    copyfile  ### teco006b, neu per 25.01.2019
+
+zielvz='rpri275@lnx0423a:/home/rpri275/.config/mc';    copyfile  ### tokk001a, neu per 29.01.2019
+zielvz='rpri275@lnx0423b:/home/rpri275/.config/mc';    copyfile  ### tokk001b, neu per 29.01.2019
+
+zielvz='rpri275@lnx0424a:/home/rpri275/.config/mc';    copyfile  ### vokk001a, neu per 10.05.2019
+zielvz='rpri275@lnx0424b:/home/rpri275/.config/mc';    copyfile  ### vokk001b, neu per 10.05.2019
+
+zielvz='rpri275@lnx0425a:/home/rpri275/.config/mc';    copyfile  ### pokk001a, neu per 10.05.2019
+zielvz='rpri275@lnx0425b:/home/rpri275/.config/mc';    copyfile  ### pokk001b, neu per 10.05.2019
+
+zielvz='rpri275@lnx0426a:/home/rpri275/.config/mc';    copyfile  ### teco011a, neu per 25.01.2019
+zielvz='rpri275@lnx0426b:/home/rpri275/.config/mc';    copyfile  ### teco011b, neu per 25.01.2019
+
+zielvz='rpri275@lnx0427a:/home/rpri275/.config/mc';    copyfile  ### teco012a, neu per 25.01.2019
+zielvz='rpri275@lnx0427b:/home/rpri275/.config/mc';    copyfile  ### teco012b, neu per 25.01.2019
+
+zielvz='rpri275@lnx0428a:/home/rpri275/.config/mc';    copyfile  ### ieco008a, neu per 04.02.2019
+
+zielvz='rpri275@lnx0429a:/home/rpri275/.config/mc';    copyfile  ### veco008a, neu per 04.02.2019
+
+zielvz='rpri275@lnx0430a:/home/rpri275/.config/mc';    copyfile  ### neco008a, neu per 04.02.2019
+
+zielvz='rpri275@lnx0431a:/home/rpri275/.config/mc';    copyfile  ### peco008a, neu per 04.02.2019
+
+zielvz='rpri275@lnx0432a:/home/rpri275/.config/mc';    copyfile  ### ttap001a, neu per 10.05.2019
+zielvz='rpri275@lnx0432b:/home/rpri275/.config/mc';    copyfile  ### ttap001b, neu per 10.05.2019
+
+zielvz='rpri275@lnx0434a:/home/rpri275/.config/mc';    copyfile  ### dynatrace2, neu per 28.02.2019
+
+zielvz='rpri275@lnx0435a:/home/rpri275/.config/mc';    copyfile  ### veco006a, neu per 19.02.2019
+zielvz='rpri275@lnx0435b:/home/rpri275/.config/mc';    copyfile  ### veco006a, neu per 19.02.2019
+
+zielvz='rpri275@lnx0436a:/home/rpri275/.config/mc';    copyfile  ### neco006a, neu per 19.02.2019
+zielvz='rpri275@lnx0436b:/home/rpri275/.config/mc';    copyfile  ### neco006a, neu per 19.02.2019
+
+zielvz='rpri275@lnx0437a:/home/rpri275/.config/mc';    copyfile  ### peco006a, neu per 19.02.2019
+zielvz='rpri275@lnx0437b:/home/rpri275/.config/mc';    copyfile  ### peco006a, neu per 19.02.2019
+
+zielvz='rpri275@lnx0438a:/home/rpri275/.config/mc';    copyfile  ### ptap001a, neu per 10.05.2019
+zielvz='rpri275@lnx0438b:/home/rpri275/.config/mc';    copyfile  ### ptap001b, neu per 10.05.2019
+
+#zielvz='rpri275@lnx0440a:/home/rpri275/.config/mc';    copyfile  ### ipoc005a, neu per 21.03.2019 --- 05.02.2021
+#zielvz='rpri275@lnx0440b:/home/rpri275/.config/mc';    copyfile  ### ipoc005b, neu per 21.03.2019 --- 05.02.2021
+
+#zielvz='rpri275@lnx0441a:/home/rpri275/.config/mc';    copyfile  ### ipoc006a, neu per 21.03.2019 --- 05.02.2021
+#zielvz='rpri275@lnx0441b:/home/rpri275/.config/mc';    copyfile  ### ipoc006b, neu per 21.03.2019 --- 05.02.2021
+
+zielvz='rpri275@lnx0442a:/home/rpri275/.config/mc';    copyfile  ### tslr002a, neu per 08.04.2019
+zielvz='rpri275@lnx0442b:/home/rpri275/.config/mc';    copyfile  ### tslr002b, neu per 08.04.2019
+
+zielvz='rpri275@lnx0443a:/home/rpri275/.config/mc';    copyfile  ### vslr002a, neu per 08.04.2019
+zielvz='rpri275@lnx0443b:/home/rpri275/.config/mc';    copyfile  ### vslr002b, neu per 08.04.2019
+
+zielvz='rpri275@lnx0444a:/home/rpri275/.config/mc';    copyfile  ### pslr002a, neu per 08.04.2019
+zielvz='rpri275@lnx0444b:/home/rpri275/.config/mc';    copyfile  ### pslr002b, neu per 08.04.2019
+
+zielvz='rpri275@lnx0447a:/home/rpri275/.config/mc';    copyfile  ### ieco020a, neu per 03.05.2019
+zielvz='rpri275@lnx0447b:/home/rpri275/.config/mc';    copyfile  ### ieco020b, neu per 03.05.2019
+
+zielvz='rpri275@lnx0448a:/home/rpri275/.config/mc';    copyfile  ### teco020a, neu per 03.05.2019
+zielvz='rpri275@lnx0448b:/home/rpri275/.config/mc';    copyfile  ### teco020b, neu per 03.05.2019
+
+zielvz='rpri275@lnx0449a:/home/rpri275/.config/mc';    copyfile  ### veco020a, neu per 03.05.2019
+zielvz='rpri275@lnx0449b:/home/rpri275/.config/mc';    copyfile  ### veco020b, neu per 03.05.2019
+
+zielvz='rpri275@lnx0450a:/home/rpri275/.config/mc';    copyfile  ### neco020a, neu per 03.05.2019
+zielvz='rpri275@lnx0450b:/home/rpri275/.config/mc';    copyfile  ### neco020b, neu per 03.05.2019
+
+zielvz='rpri275@lnx0451a:/home/rpri275/.config/mc';    copyfile  ### peco020a, neu per 03.05.2019
+zielvz='rpri275@lnx0451b:/home/rpri275/.config/mc';    copyfile  ### peco020b, neu per 03.05.2019
+
+zielvz='rpri275@lnx0454a:/home/rpri275/.config/mc';    copyfile  ### ieco030a, neu per 19.07.2019
+zielvz='rpri275@lnx0454b:/home/rpri275/.config/mc';    copyfile  ### ieco030b, neu per 19.07.2019
+
+zielvz='rpri275@lnx0455a:/home/rpri275/.config/mc';    copyfile  ### teco030a, neu per 19.07.2019
+zielvz='rpri275@lnx0455b:/home/rpri275/.config/mc';    copyfile  ### teco030b, neu per 19.07.2019
+
+zielvz='rpri275@lnx0456a:/home/rpri275/.config/mc';    copyfile  ### veco030a, neu per 19.07.2019
+zielvz='rpri275@lnx0456b:/home/rpri275/.config/mc';    copyfile  ### veco030b, neu per 19.07.2019
+
+zielvz='rpri275@lnx0457a:/home/rpri275/.config/mc';    copyfile  ### neco030a, neu per 19.07.2019
+zielvz='rpri275@lnx0457b:/home/rpri275/.config/mc';    copyfile  ### neco030b, neu per 19.07.2019
+
+zielvz='rpri275@lnx0458a:/home/rpri275/.config/mc';    copyfile  ### peco030a, neu per 19.07.2019
+zielvz='rpri275@lnx0458b:/home/rpri275/.config/mc';    copyfile  ### peco030b, neu per 19.07.2019
+
+zielvz='rpri275@lnx0465a:/home/rpri275/.config/mc';    copyfile  ### peco007a, neu per 03.09.2019
+zielvz='rpri275@lnx0465b:/home/rpri275/.config/mc';    copyfile  ### peco007b, neu per 03.09.2019
+
+zielvz='rpri275@lnx0466a:/home/rpri275/.config/mc';    copyfile  ### veco007a, neu per 03.09.2019
+zielvz='rpri275@lnx0466b:/home/rpri275/.config/mc';    copyfile  ### veco007b, neu per 03.09.2019
+
+zielvz='rpri275@lnx0471a:/home/rpri275/.config/mc';    copyfile  ### tecn001a, neu per 03.09.2019
+zielvz='rpri275@lnx0471b:/home/rpri275/.config/mc';    copyfile  ### tecn001b, neu per 03.09.2019
+
+zielvz='rpri275@lnx0474a:/home/rpri275/.config/mc';    copyfile  ### pecn001a, neu per 16.10.2019
+zielvz='rpri275@lnx0474b:/home/rpri275/.config/mc';    copyfile  ### pecn001b, neu per 16.10.2019
+
+zielvz='rpri275@lnx0487a:/home/rpri275/.config/mc';    copyfile  ### gitlabrunner01a, neu per 15.05.2020
+zielvz='rpri275@lnx0487b:/home/rpri275/.config/mc';    copyfile  ### gitlabrunner01b, neu per 15.05.2020
+
+zielvz='rpri275@lnx0490a:/home/rpri275/.config/mc';    copyfile  ### vecn001a, neu per 13.11.2019
+zielvz='rpri275@lnx0490b:/home/rpri275/.config/mc';    copyfile  ### vecn001b, neu per 13.11.2019
+
+zielvz='rpri275@lnx0491a:/home/rpri275/.config/mc';    copyfile  ### iecn001a, neu per 13.11.2019
+zielvz='rpri275@lnx0491b:/home/rpri275/.config/mc';    copyfile  ### iecn001b, neu per 13.11.2019
+
+zielvz='rpri275@lnx0498a:/home/rpri275/.config/mc';    copyfile  ### ieco040a, neu per 10.01.2020
+zielvz='rpri275@lnx0498b:/home/rpri275/.config/mc';    copyfile  ### ieco040b, neu per 10.01.2020
+
+zielvz='rpri275@lnx0499a:/home/rpri275/.config/mc';    copyfile  ### teco040a, neu per 10.01.2020
+zielvz='rpri275@lnx0499b:/home/rpri275/.config/mc';    copyfile  ### teco040b, neu per 10.01.2020
+
+zielvz='rpri275@lnx0500a:/home/rpri275/.config/mc';    copyfile  ### veco040a, neu per 10.01.2020
+zielvz='rpri275@lnx0500b:/home/rpri275/.config/mc';    copyfile  ### veco040b, neu per 10.01.2020
+
+zielvz='rpri275@lnx0501a:/home/rpri275/.config/mc';    copyfile  ### peco040a, neu per 10.01.2020
+zielvz='rpri275@lnx0501b:/home/rpri275/.config/mc';    copyfile  ### peco040b, neu per 10.01.2020
+
+zielvz='rpri275@lnx0514a:/home/rpri275/.config/mc';    copyfile  ### gitlabrunner02a, neu per 15.05.2020
+zielvz='rpri275@lnx0514b:/home/rpri275/.config/mc';    copyfile  ### gitlabrunner02b, neu per 15.05.2020
+
+zielvz='rpri275@lnx0516a:/home/rpri275/.config/mc';    copyfile  ### neco040a, neu per 20.06.2020
+zielvz='rpri275@lnx0516b:/home/rpri275/.config/mc';    copyfile  ### neco040b, neu per 20.06.2020
+
+zielvz='rpri275@lnx0552a:/home/rpri275/.config/mc';    copyfile  ### pecn010a, neu per 24.07.2020
+zielvz='rpri275@lnx0552b:/home/rpri275/.config/mc';    copyfile  ### pecn010b, neu per 24.07.2020
+
+zielvz='rpri275@lnx0553a:/home/rpri275/.config/mc';    copyfile  ### vecn010a, neu per 24.07.2020
+zielvz='rpri275@lnx0553b:/home/rpri275/.config/mc';    copyfile  ### vecn010b, neu per 24.07.2020
+
+zielvz='rpri275@lnx0554a:/home/rpri275/.config/mc';    copyfile  ### tecn010a, neu per 24.07.2020
+zielvz='rpri275@lnx0554b:/home/rpri275/.config/mc';    copyfile  ### tecn010b, neu per 24.07.2020
+
+#------------------------------------------
+

@@ -1,0 +1,842 @@
+shell_patterns=0
+
+# Matrix, der von SprG vergebenen (belegten) Menue-Punkte: Siehe auch im FC/W-Pendant 'fcw.mnu.matrix'
+#
+#   A B C D E F G H I J K L M N O P Q R S T U V W X Y Z     0 1 2 3 4 5 6 7 8 9
+#   ---------------------------------------------------------------------------
+#   x x x x _ _ x x _ _ _ _ _ x x x _ _ _ x x _ _ x _ x     _ x x x x x x x x x     MC/Unix
+#
+#   _ _ x x x x _ _ _ x _ x x x _ x _ x x _ x _ x x x x     _ _ x x x x x _ _ x     FC/W
+#
+# Stand: 28.04.2017
+
+#------------------------------------------------------------------------------------------------------------
+#
+# * shell_patterns=0 ---> Bedingungen werden als *RegExe* aufgefasst (z.B. '+= f \.md5$  &  ! t t').
+#
+# * Hilfe zur Syntax fuer das User-Menue (F2): MC starten, F2, F1 (d.h. Menue aufrufen und dann F1).
+#
+# * Sollen als Aktion nicht einfache Befehle (wie z.B. "spgCpyToAixNode -d '%d' -f '%f'"), sondern
+#   (komplexe) *Shellskripte* ausgefuehrt werden ist Folgendes zu beachten:
+#
+#   - Das Skript muss *sofort nach* dem Menue-Eintrag (d.h. sofort nach jenen Zeilen, die ohne Blanks/Tabs
+#     beginnen) codiert werden, d.h. es darf *nicht* mit einer *Leerzeile* beginnen!
+#
+#   - Das Skript darf vor dem Ende keine *Leerzeile* aufweisen, denn eine solche beendet das Skript (vorzeitig).
+#
+#   - Das Skript darf nichts in Spalte 1 aufweisen. Ein Zeichen ungleich Blank in Spalte 1 beendet das Skript.
+#     Deshalb vor allem Achtung, wenn Kommentare gesetzt werden, dass sie nicht in Spalte 1 platziert werden!
+#
+#   - Das Skript wird in eine temporaere Datei nach '/tmp/...' kopiert, wobei alle *fuehrenden Blanks*
+#     der Zeilen entfernt werden. In aelteren MCs wird diese temporaere Datei dann direkt von der
+#     aktuellen Shell ausgefuehrt, in neueren MCs hingegen von '/bin/sh' und zudem ist die erste Zeile der
+#     temporaeren Datei immer '#! /bin/sh', wodurch Shebangs in der Datei 'Menue' unwirksam sind!
+#
+#     '/bin/sh' ist unter AIX meist die KSH88, unter Ubuntu hingegen die DASH [Debian Almquist Shell].
+#     Mittels 'ps -$$ -o comm=' kann die genaue Shell *nicht* ermittelt werden, da der Ausdruck meist 'sh' ergibt.
+#
+#     ---> auf POSIX-Konstrukte beschraenken, konkret:
+#
+#     - Keine Shebangs, da sie wirkungslos sind und eine "falsche" Shell suggerieren koennten. Siehe oben.
+#
+#     - Kein [[...]]-Konstrukt, da es von der DASH nicht unterstuetzt wird (Meldung: [[: not found).
+#
+#     - Escapesequenzen (fuer Farben z.B.) *literal* (1:1) kodieren, damit der ECHO-Befehl nur Text ausgeben
+#       muss und keine Optionen wie '-e' benoetigt. Diese Option gibt es nur in der BASH und diese benoetigt
+#       sie auch, um Sequenzen wie "\033" in ein Byte umzuwandeln, bevor der Text ausgegeben wird.
+#
+#          ansiEsc='['  # '1B 5B'X bzw. Esc [    !!!  Esc/'1B'X literal [d.h. als 1 Byte] spezifizieren !!!
+#          ansiF_HGeSw="${ansiEsc}1;33;40m"
+#          ansiF_NWeSw="${ansiEsc}0;37;40m"
+#          echo "${ansiF_HGeSw}--------------${ansiF_NWeSw}"   # nur Text ausgeben, Esc ist bereits literal enthalten
+#
+#     - Vermeiden von 'for i in %T; do'. Wenn %T leer ist, ist dies fuer die KSH88 ein Syntaxfehler (fuer die
+#       BASH und DASH waere es hingegen okay).
+#
+#       Fuer die meisten Shells hingegen okay:
+#
+#          for i in "" %T; do # "" ist noetig, damit die KSH keinen Syntaxfehler erzeugt, wenn Prozent-T leer ist
+#             if [ "$i" != "" ]; then
+#
+#       Als Loesung siehe auch z.B. den Menue-Punkt '9' (Dateien/Verzeichnisse auf CRs untersuchen)
+#
+# * *Vor* der Ausfuehrung eines Skriptes/Befehls erfolgt noch die Makrosubstitution (%f, %u, ...). Blanks
+#   in Datei- und Pfad-Namen werden zum Schutz mit einem '\' praefigiert, sie werden also zu '\ '.
+#   Literale '%' muessen als '%%' spezifiziert werden.
+#
+# * Voll qualifizierter DSN: '%d/%f'.
+#
+# * Prozent-u und Prozent-U de-selektieren die entspr. Datei, sobald sie vom MC "gesehen/geparst" werden,
+#   auch in Kommentaren! Wenn sie aber in echo, if-Zweigen o. ae. verwendet werden sollen und dort natuerlich
+#   die entspr. Dateien weiterhin selektiert bleiben sollen (damit sie noch "richtig" verarbeitet
+#   werden koennen), kann man Prozent-t bzw. Prozent-T verwenden. Auch in nicht exekutierten
+#   if-Zweigen werden solche Dateien de-selektiert!
+#
+# * FOR-Schleifen ueber DSNs mit Blanks:
+#
+#      for i in %u; do    # nicht "%u", d.h. %u *nicht* quoten!!! Blanks sind in %u mit '\' geschuetzt
+#         ..."$i"         # $i w/ darin enthaltenen Blanks quoten
+#      done
+#
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+#  D-Lib: C:/UtilNT/SFU/apps/util/MC_Ini_Menu
+#
+#  T-Lib (Unix): ~/.mc (auf den einzelnen Knoten. Verteilung siehe 'verteil_menu' in D-Lib bzw.
+#                                                 in VZ ~/.mc am SSH-Hub.
+#
+#  Nach Aenderungen/Anpassungen dieser Menue-Masterdatei auf dem Windows-PC (in der D-Lib also),
+#  muss diese wie folgt aktiviert werden:
+#
+#     1. Diese Masterkopie 'menu.master' haendisch auf den SSH-Hub 1:1 ins Verzeichnis '~/.mc' kopieren.
+#
+#     2. Am SSH-Hub den Verteil-Job '~/.mc/verteil_menu' ausfuehren. Er kopiert dessen '~/.mc/menu.master'
+#        als '~/.mc/menu.master' und '~/.mc/menu' zu den Unix-Knoten.
+#
+#        'menu.master' wird auf den Zielknoten vor allem fuer den User 'wasys' und dessen Logon-Profil benoetigt.
+#
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+#------------------------------------------------------------------------------------------------------------
+
+#--- Datei(en) Schreibrechte fuer die Gruppe vergeben, restl. Rechte ggf. anpassen
+
++ ! t t
+g   Aktuelle Datei: Rechte anpassen 'chmod ug+rw...'
+    #
+    # Prozent-f weder einfach noch doppelt quoten, damit Dateien mit Blanks im Namen richtig verarbeitet werden!
+    #
+    # MC praefigiert Blanks in Dateinamen mit '\', die bei beiden Quotings erhalten bleiben und der
+    # CHMOD-Befehl somit fehlschlagen wuerde.
+    #
+    # ANSI-Escape-Sequenz *direkt* eingeben, damit sie nicht erst der ECHO-Befehl interpretieren
+    # muss. Der ECHO-Befehl hat naemlich je nach Shell eine eigene Syntax in dieser Hinsicht
+    #
+    ansiEsc='['                         # '1B 5B'X -> Esc [
+    ansiF_HGrSw="${ansiEsc}0;1;32;40m"
+    ansiF_HRoSw="${ansiEsc}0;1;31;40m"
+    ansiF_NWeSw="${ansiEsc}0;37;40m"
+    attrs=ug+rw
+    #
+    if [ -d %f ]; then attrs="${attrs},ug+x"; fi        # Rechte bei einem VZ noch erweitern
+    echo; echo Rechteanpassung ${attrs} fuer "'%f'"; echo
+    chmod ${attrs} %f; RC=$?
+    if [ "${RC}" != 0 ]; then
+       echo "${ansiF_HRoSw=}Achtung: Anpassung der Rechte war fehlerhaft, CHMOD-RC ist '${RC}'!${ansiF_NWeSw}"
+     else
+       echo "${ansiF_HGrSw=}Anpassung der Rechte war okay.${ansiF_NWeSw}"
+    fi
+
++ t t
+g   Selektierte Dateien: Rechte anpassen 'chmod ug+rw...'
+    #
+    ansiEsc='['                         # '1B 5B'X -> Esc [
+    ansiF_HGrSw="${ansiEsc}0;1;32;40m"
+    ansiF_HRoSw="${ansiEsc}0;1;31;40m"
+    ansiF_NWeSw="${ansiEsc}0;37;40m"
+    attrs=ug+rw
+    #
+    for i in %t; do
+       #
+       # Quoting-Sachverhalt fuer Dateinamen mit Blanks: Siehe vorigen Abschnitt. Das Quoting fehlt deshalb
+       #                                                 in der FOR-Schleife bereits, wodurch die '\' in
+       #                                                 $i bereits entfernt sind.
+       #
+       # Blanks sind in $i nicht mehr geschuetzt, deshalb $i ab jetzt doppelt quoten
+       #
+       attrs=ug+rw
+       #
+       if [ -d "$i" ]; then attrs="${attrs},ug+x"; fi      # Rechte bei einem VZ noch erweitern
+       echo; echo Rechteanpassung ${attrs} fuer "'$i'"; echo
+       chmod ${attrs} "$i"; RC=$?
+       if [ "${RC}" != 0 ]; then
+          echo "${ansiF_HRoSw=}Achtung: Anpassung der Rechte war fehlerhaft, CHMOD-RC ist '${RC}'!${ansiF_NWeSw}"
+        else
+          echo "${ansiF_HGrSw=}Anpassung der Rechte war okay.${ansiF_NWeSw}"
+       fi
+    done
+    # mit %u nun alles deselektieren, da bisher stattdessen absichtlich nur Prozent-t verwendet wurde.
+
+#--- Dateien mit DOS-Zeilenschaltungen Unix-konform umwandeln
+
++ ! t t
+4   Dateien mit DOS-Zeilenschaltungen Unix-konform umwandeln
+    spgDos2Unix.pl %d/%f
+
++ t t
+4   Dateien mit DOS-Zeilenschaltungen Unix-konform umwandeln
+    if [ "%T" != "" ]; then             # auch Datei auf gegenueberliegender Panelhaelfte markiert
+       #
+       #    Achtung: u/U deselektieren die entspr. Datei, sobald sie vom MC "gesehen" werden,
+       #             auch in Kommentaren. Deshalb wurde in voriger Zeile absichtlich das Prozentzeichen
+       #             weggelassen! Und deshalb wird beim folgenden echo-Befehl t/T statt u/U verwendet!
+       #
+       for i in "" %T; do               # "" ist noetig, damit die KSH keinen Syntaxfehler erzeugt, wenn Prozent-T leer ist
+          if [ "$i" != "" ]; then
+             spgDos2Unix.pl "%D/$i"
+          fi
+       done
+    fi
+    for i in %t; do                     # Prozent-t ist nie leer, sonst waere die Bedingung '+ t t' nicht erfuellt
+       spgDos2Unix.pl "%d/$i"
+    done
+    # %u %U alles deselektieren, da bisher stattdessen absichtlich nur Prozent-t bzw. -T verwendet wurde.
+
+#--- Dateien/Verzeichnisse auf CRs (Carriage Returns) untersuchen
+
++ ! t t
+9   Datei/Verzeichnis auf CRs untersuchen
+    spgChk4CRs.pl %d/%f
+
++ t t
+9   Dateien/Verzeichnisse auf CRs untersuchen
+    if [ "%T" != "" ]; then             # auch Datei auf gegenueberliegender Panelhaelfte markiert
+       #
+       #    Achtung: u/U deselektieren die entspr. Datei, sobald sie vom MC "gesehen" werden,
+       #             auch in Kommentaren. Deshalb wurde in voriger Zeile absichtlich das Prozentzeichen
+       #             weggelassen! Und deshalb wird beim folgenden echo-Befehl t/T statt u/U verwendet!
+       #
+       for i in "" %T; do               # "" ist noetig, damit die KSH keinen Syntaxfehler erzeugt, wenn Prozent-T leer ist
+          if [ "$i" != "" ]; then
+             spgChk4CRs.pl "%D/$i"
+          fi
+       done
+    fi
+    for i in %t; do                     # Prozent-t ist nie leer, sonst waere die Bedingung '+ t t' nicht erfuellt
+       spgChk4CRs.pl "%d/$i"
+    done
+    # %u %U alles deselektieren, da bisher stattdessen absichtlich nur Prozent-t bzw. -T verwendet wurde.
+
+#--- HA-Meldungen untersuchen (DCS-Protokoll)
+
++ ! t t
+a   HA-Meldungen von WAS-VMs suchen (auch .bz2 erlaubt)
+    fn=%f; last4Char=${fn#"${fn%%????}"}
+    # echo "$last4Char"
+    if [ "$last4Char" = '.bz2' ]; then
+       echo '----- Suche nach HA-Meldungen (DCS-Protokoll) [BZCAT-Filter aktiviert] -----'
+       echo
+       bzcat $fn|perl -ne 'if (/\sW\s+DCS/) {print qq(\e[1;31;40m),$_,qq(\e[0;37;40m\n)} elsif (/\sI\s+DCS/) {print qq(\e[1;37;40m),$_,qq(\e[0;37;40m\n)}'
+    else
+       echo '----------------- Suche nach HA-Meldungen (DCS-Protokoll) ------------------'
+       echo
+       perl -ne 'if (/\sW\s+DCS/) {print qq(\e[1;31;40m),$_,qq(\e[0;37;40m\n)} elsif (/\sI\s+DCS/) {print qq(\e[1;37;40m),$_,qq(\e[0;37;40m\n)}' $fn
+    fi
+
+#--- Archiv entpacken
+
++ ! t t
+u   Archiv entpacken (Unzip, GUnzip, BUnzip2, ...)
+    fn=%f; last4Char=${fn#"${fn%%????}"}; last3Char=${fn#"${fn%%???}"}; last2Char=${fn#"${fn%%??}"}
+    #
+    ansiEsc='['  # '1B 5B'X bzw. Esc [    !!!  Esc/'1B'X literal [d.h. 1 Byte] !!!
+    ansiF_HRoSw="${ansiEsc}0;1;31;40m"
+    ansiF_HGrSw="${ansiEsc}0;1;32;40m"
+    ansiF_NWeSw="${ansiEsc}0;37;40m"
+    #
+    # Keine [[...]]-Konstrukte verwenden (w/ DASH [Debian Almquist Shell] z.B.), deshalb sind auch keine
+    # Operatoren '&&' bzw. '||' und RegEx-Pattern moeglich
+    #
+    if [ "$last4Char" = '.bz2' ]; then
+       bzip2 -kd -v "$fn"; rc=$?;
+       if [ $rc -eq 0 ]; then frb=$ansiF_HGrSw; else frb=$ansiF_HRoSw; fi
+       echo; echo "${frb}Der BZip2-RC ist: ${rc}${ansiF_NWeSw}"
+    #
+    elif [ "$last4Char" = '.tbz' ]; then
+       bzip2 -kd -v "$fn"; rc=$?;
+       if [ $rc -eq 0 ]; then frb=$ansiF_HGrSw; else frb=$ansiF_HRoSw; fi
+       echo; echo "${frb}Der BZip2-RC ist: ${rc}${ansiF_NWeSw}"
+    #
+    elif [ "$last4Char" = '.tgz' ]; then
+       gzip -d -c "$fn" | tar -xvf -
+       rc=$?
+       if [ $rc -eq 0 ]; then frb=$ansiF_HGrSw; else frb=$ansiF_HRoSw; fi
+       echo; echo "${frb}Der GZip-RC ist: ${rc}${ansiF_NWeSw}"
+    #
+    elif [ "$last4Char" = '.tar' ]; then
+       tar -xvf "$fn"; rc=$?;
+       if [ $rc -eq 0 ]; then frb=$ansiF_HGrSw; else frb=$ansiF_HRoSw; fi
+       echo; echo "${frb}Der Tar-RC ist: ${rc}${ansiF_NWeSw}"
+    #
+    elif [ "$last4Char" = '.war' ]; then
+       unzip "$fn"; rc=$?;
+       if [ $rc -eq 0 ]; then frb=$ansiF_HGrSw; else frb=$ansiF_HRoSw; fi
+       echo; echo "${frb}Der Unzip-RC ist: ${rc}${ansiF_NWeSw}"
+    #
+    elif [ "$last4Char" = '.ear' ]; then
+       unzip "$fn"; rc=$?;
+       if [ $rc -eq 0 ]; then frb=$ansiF_HGrSw; else frb=$ansiF_HRoSw; fi
+       echo; echo "${frb}Der Unzip-RC ist: ${rc}${ansiF_NWeSw}"
+    #
+    elif [ "$last4Char" = '.zip' ]; then
+       unzip "$fn"; rc=$?;
+       if [ $rc -eq 0 ]; then frb=$ansiF_HGrSw; else frb=$ansiF_HRoSw; fi
+       echo; echo "${frb}Der Unzip-RC ist: ${rc}${ansiF_NWeSw}"
+    #
+    elif [ "$last3Char" = '.gz'  ]; then
+       gzip -d -v "$fn"; rc=$?;
+       if [ $rc -eq 0 ]; then frb=$ansiF_HGrSw; else frb=$ansiF_HRoSw; fi
+       echo; echo "${frb}Der GZip-RC ist: ${rc}${ansiF_NWeSw}"
+    #
+    elif [ "$last2Char" = '.z'   ]; then
+       gzip -d -v "$fn"; rc=$?;
+       if [ $rc -eq 0 ]; then frb=$ansiF_HGrSw; else frb=$ansiF_HRoSw; fi
+       echo; echo "${frb}Der GZip-RC ist: ${rc}${ansiF_NWeSw}"
+    #
+    elif [ "$last2Char" = '.Z'   ]; then
+       gzip -d -v "$fn"; rc=$?;
+       if [ $rc -eq 0 ]; then frb=$ansiF_HGrSw; else frb=$ansiF_HRoSw; fi
+       echo; echo "${frb}Der GZip-RC ist: ${rc}${ansiF_NWeSw}"
+    #
+    elif [ "$last3Char" = '.xz'  ]; then
+       xz -k -d -v "$fn"; rc=$?;
+       if [ $rc -eq 0 ]; then frb=$ansiF_HGrSw; else frb=$ansiF_HRoSw; fi
+       echo; echo "${frb}Der Xz-RC ist: ${rc}${ansiF_NWeSw}"
+    #
+    else
+       echo ""
+       echo "*** Ungueltige Dateiendung. Kein Entpacken eines Archivs moeglich! ***"
+       echo ""
+    fi
+
+
+#--- Zwei Dateien mit diff-Tool vergleichen. Die Dateien muessen selektiert sein.
+
++ t t
+d   DIFF 2-er markierter Dateien bilden (Whitespace irrelevant)
+    #
+    # ANSI-Escape-Sequenz *direkt* eingeben, damit sie nicht erst der ECHO-Befehl interpretieren
+    # muss. Der ECHO-Befehl hat naemlich je nach Shell eine eigene Syntax in dieser Hinsicht
+    #
+    ansiEsc='['                         # '1B 5B'X -> Esc [
+    ansiF_HGeSw="${ansiEsc}1;33;40m"
+    ansiF_NWeSw="${ansiEsc}0;37;40m"
+    echo "${ansiF_HGeSw}-------------------------------------------------------------------------------------------------${ansiF_NWeSw}"
+    if [ "%T" != "" ]; then             # auch Datei auf gegenueberliegender Panelhaelfte markiert
+       #
+       #    Achtung: u/U deselektieren die entspr. Datei, sobald sie vom MC "gesehen" werden,
+       #             auch in Kommentaren. Deshalb wurde in voriger Zeile absichtlich das Prozentzeichen
+       #             weggelassen! Und deshalb wird beim folgenden echo-Befehl t/T statt u/U verwendet!
+       #
+       echo "Vergleiche '%d/%t' mit '%D/%T'"
+       echo
+       diff -w -b %d/%t %D/%T|less -X -F
+    else                                # nur Dateien auf der aktuellen Panelhaelfte markiert
+       echo "Vergleiche die Dateien: %t"
+       echo
+       diff -w -b %t|less -X -F
+    fi
+    # %u %U alles deselektieren, da bisher absichtlich nur Prozent-t bzw. -T verwendet wurde.
+
+
+#--- Stopps und Starts von WAS-VMs. Achtung '%' muessen verdoppelt werden, wenn sie an Skript weitergereicht
+#                                   werden sollen. Andernfalls gelten sie fuer den MC (%u, %f z.B.)
+
++ ! t t
+h   Start- und Stopp-Zeiten von WAS-VMs (auch .bz2 erlaubt)
+    fn=%f; last4Char=${fn#"${fn%%????}"}
+    echo "Ermittle Stopps und Starts der VM aus Datei '$fn'"
+    # echo "$last4Char"
+    if [ "$last4Char" = ".bz2" ]; then
+       echo "Info: Der BZCAT-Filter wurde aktiviert."
+       echo
+       bzcat $fn|grep -E " Server .+ stopped$| open for e-business| AdminHelper   A   ADMN1020I: An attempt is made to stop the "
+    else
+       echo
+       grep -E " Server .+ stopped$| open for e-business| AdminHelper   A   ADMN1020I: An attempt is made to stop the " $fn
+    fi
+
+
+#--- Datei auf AIX-Knoten kopieren
+
++ ! t t
+c   Aktuelle Datei auf Zielknoten kopieren
+    spgCpyToAixNode -srcdir '%d' -file '%f'
+
++ t t
+c   Selektierte Datei(en) auf Zielknoten kopieren
+    spgCpyToAixNode -srcdir '%d' -file '%u'
+
+
+#--- File mit X1 analysieren
+
++ ! t t
+1   StdErr (native) mit X1 analysieren (auch .bz2 erlaubt)
+    x1.pl -if '%f'
+
+#--- Transport-Archiv (es wird immer nur ein Archiv erstellt, es kann aber mehr als eine Datei beinhalten)
+
++ t t
+2   Ein Transport-Archiv aus den markierten Files erstellen
+    spgCreateTransportZip.pl %u
++ ! t t
+2   Ein Transport-Archiv aus aktuellem File erstellen
+    spgCreateTransportZip.pl %f
+
+#--- Rest
+
++ t t
+3   Backup im akt. VZ mit Suffix 'JJJJMMTT' erstellen
+    spgCreateBackupInActDir.pl %u
+
++ ! t t
+3   Backup im akt. VZ mit Suffix 'JJJJMMTT' erstellen
+    spgCreateBackupInActDir.pl %f
+
++  t t
+n   Kopie unter der naechsten freien Endung (001 - 999)
+    spgCreateNewSuffixInActDir.pl %u
+
++ ! t t
+n   Kopie unter der naechsten freien Endung (001 - 999)
+    spgCreateNewSuffixInActDir.pl %f
+
++ t t
+o   Owner der Datei auf aktuellen User aendern
+    spgSetNewOwner.pl %u
+
++ ! t t
+o   Owner der Datei auf aktuellen User aendern
+    spgSetNewOwner.pl %f
+
+#+ ! t t --- per 24.10.2014 deaktiviert
+#4   File vom Hub ins Tier3-Transfer-VZ kopieren
+#    spgCpyHub2T3Transfer.pl %f
+
+#--- MD5-Summen ----------------------------
+
+#... Wenn Datei auf '.md5' endet und *keine* Datei(en) markiert sind,
+#... dann den 'MD5-Checker' zum Default-Eintrag (wird durch das '=' erreicht) machen
+
++= f \.md5$  &  ! t t
+5   MD5-Summe checken
+    md5sum -c %f
+
+#... Wenn Datei auf '.md5' endet und Datei(en) markiert sind,
+#... dann den 'MD5-Checker' zum Default-Eintrag (wird durch das '=' erreicht) machen
+
++= f \.md5$  &  t t
+5   MD5-Summe der markierten Dateien checken
+    for i in %u; do
+       md5sum -c "$i"
+    done
+
+#... Wenn Datei *nicht* auf '.md5' endet und Datei(en) markiert sind
+
++ ! f \.md5$  &  t t
+5   MD5-Summen der markierten Dateien ermitteln und in *.md5 ablegen
+    spgMd5SumGen %u
+
+#... Wenn Datei *nicht* auf '.md5' endet und *keine* Datei(en) markiert sind
+
++ ! f \.md5$  &  ! t t
+5   MD5-Summe der Datei ermitteln und in *.md5 ablegen
+    spgMd5SumGen %f
+
+#-------------------------------------------
+
++ ! t t
+6   File aus e-BK@-Tier-2/3/4 zum Windows-PC kopieren
+    spg_E2W_CreateTransportInfo.pl %d/%f
+
+#--- Crontab-Datei mit Crontab vergleichen -
+
++ ! t t
+7   aktuelle Datei mit Crontab (crontab -l) vergleichen
+    spgChkCrontab %d/%f
+
+#--- Transport-File
+
++ t t
+8   Transport-Files in '<HOME>/transfer' erstellen
+    spgCreateTransportFile.pl %u
++ ! t t
+8   Transport-File in '<HOME>/transfer' erstellen
+    spgCreateTransportFile.pl %f
+
+#-------------------------------------------
+
++ t t
+b   bzip2 <markierte Datei(en)>
+    bzip2 %u
+
++ ! t t
+b   bzip2 <aktuelle Datei>
+    bzip2 %f
+
+
++ t t
+p   Pruefsumme <aktuelle markierte Datei(en)>
+    if [ "%T" != "" ]; then             # auch Datei auf gegenueberliegender Panelhaelfte markiert
+       #
+       #    Achtung: u/U deselektieren die entspr. Datei, sobald sie vom MC "gesehen" werden,
+       #             auch in Kommentaren. Deshalb wurde in voriger Zeile absichtlich das Prozentzeichen
+       #             weggelassen! Und deshalb wird beim folgenden echo-Befehl t/T statt u/U verwendet!
+       #
+       spgCksum.pl %d/%t %D/%T
+    else                                # nur Dateien auf der aktuellen Panelhaelfte markiert
+       spgCksum.pl %t
+    fi
+    # %u %U alles deselektieren, da bisher absichtlich nur Prozent-t bzw. -T verwendet wurde.
+
++ ! t t
+p   Pruefsumme <aktuelle Datei>
+    spgCksum.pl %f
+
+
++ ! t t
+t   tail -f <aktuelle Datei>
+    tail -f %f
+
+
++ ! x x
+x   XML-Check <aktuelle Datei>
+    chkxml -if %f
+
+
++ ! t t
+z   Zip <aktuelle Datei/aktuelles Verzeichnis>
+    spgZipFileOrDir.pl %f
+
++ t t
+z   Zip <markierte Dateien/Verzeichnisse>
+    spgZipFileOrDir.pl %u
+
+
+#--- Original ex MC --------------------------------------------------------------------------------------
+
+
++ ! t t
+@       Do something on the current file
+        CMD=%{Enter command}
+        $CMD ./%0f
+
++ t t
+@       Do something on the tagged files
+        set %u; CMD=%0{Enter command}
+        while [ -n "$1" ]; do
+          $CMD "$1" || echo tag "$1" >>$MC_CONTROL_FILE
+          shift
+        done
+
+
+0       Edit a bug report and send it to root
+        ${EDITOR-vi} /tmp/mail.$$
+        test -r /tmp/mail.$$ && mail root < /tmp/mail.$$
+        rm -f /tmp/mail.$$
+
+= t d
+3       Make a release of the current subdirectory (tar.gz)
+        Pwd=`basename %d /`
+        echo -n "Name of the distribution file (without extension) [$Pwd]: "
+        read tar
+        if [ "$tar"x = x ]; then tar=$Pwd; fi
+        cd .. && tar chf - $Pwd | gzip -f9 > $tar.tar.gz
+        echo ../${tar}.tar.gz created.
+#       tar=%{Name of the distribution file (without extension)}
+
+#--- Per 11.12.2015 deaktiviert
+#4       Make a release of the current subdirectory (tar.bz2)
+#        Pwd=`basename %d /`
+#        echo -n "Name of the distribution file (without extension) [$Pwd]: "
+#        read tar
+#        if [ "$tar"x = x ]; then tar=$Pwd; fi
+#        cd .. && tar chf - $Pwd | bzip2 -f --repetitive-best > $tar.tar.bz2
+#        echo ../${tar}.tar.bz2 created.
+##       tar=%{Name of the distribution file (without extension)}
+
+= f \.c$ & t r
++ f \.c$ & t r & ! t t
+5       Compile and link current .c file
+        make `basename %f .c` 2>/dev/null || cc -O -o `basename %f .c` %f
+
++ t r & ! t t
+a       Append file to opposite
+        cat %f >>%D/%f
+
++ t t
+A       Append files to opposite files
+        set %u
+        while [ -n "$1" ]; do
+          cat $1 >>%D/$1 || echo tag $1 >>$MC_CONTROL_FILE
+          shift
+        done
+
+#--- Per 10.09.2015 deaktiviert
+#+ t r & ! t t
+#d       Delete file if a copy exists in the other directory.
+#        if [ "%d" = "%D" ]; then
+#          echo "The two directores must be different"
+#          exit 1
+#        fi
+#        if [ -f %D/%f ]; then        # if two of them, then
+#          if cmp -s %D/%f %f; then
+#            rm %f && echo %f: DELETED
+#          else
+#            echo "%f and %D/%f differ: NOT deleted"
+#            echo -n "Press RETURN "
+#            read key
+#          fi
+#        else
+#          echo %f: No copy in %D/%f: NOT deleted.
+#        fi
+#
+#+ t t
+#D       Delete tagged files if a copy exists in the other directory.
+#        if [ "%d" = "%D" ]; then
+#          echo "The two directores must be different"
+#          exit 1
+#        fi
+#        for i in %t
+#        do
+#          if [ -f %D/$i ]; then
+#            SUM1="`sum $i`"
+#            SUM2="`sum %D/$i`"
+#            if [ "$SUM1" = "$SUM2" ]; then
+#              rm $i && echo ${i}: DELETED
+#            else
+#              echo $i and %D/$i differ: NOT deleted.
+#            fi
+#          else
+#            echo %f has no copy in %D/%f: NOT deleted.
+#          fi
+#        done
+
+= t r &
++ ! t t
+h       Strip headers from current newsarticle
+        CHECK=`sed 1q < %f|awk '{print $1}'` 2>/dev/null
+        case $CHECK in
+          Newsgroups:|Path:)
+              cp %f /tmp/%f.$$ && sed '/^'"$CHECK"' /,/^$/d' /tmp/%f.$$ > %f
+              [ "$?" = "0" ] && rm /tmp/%f.$$
+              echo %f: header removed
+                ;;
+          *)
+              echo %f is not a news article.
+                ;;
+        esac
+
++ t t
+H       Strip headers from the marked newsarticles
+        set %u
+        while [ -n "$1" ]; do
+          CHECK=`sed 1q < $1|awk '{print $1}'` 2>/dev/null
+          WFILE=/tmp/${1}.$$
+          case $CHECK in
+            Newsgroups:|Path:)
+              cp $1 $WFILE && sed '/^'"$CHECK"' /,/^$/d' $WFILE > $1
+              if [ "$?" = "0" ]; then
+                rm $WFILE; echo $1 header removed. OK.
+              else
+                echo tag $1 >>$MC_CONTROL_FILE
+                echo "Oops! Please check $1 against $WFILE"
+              fi
+                ;;
+            *)
+              echo $1 skipped: Not a news article.
+              echo tag $1 >>$MC_CONTROL_FILE
+                ;;
+          esac
+          shift
+        done
+
+= t r
++ ! t t
+r       Copy file to remote host
+        echo -n "To which host?: "
+        read Host
+        echo -n "To which directory on $Host?: "
+        read Dir
+        rcp -p %f ${Host}:$Dir
+
++ t t
+R       Copy files to remote host (no error checking)
+        echo -n "Copy files to which host?: "
+        read Host
+        echo -n "To which directory on $Host? :"
+        read Dir
+        rcp -pr %u ${Host}:$Dir
+
+= f \.tex$ & t r
++ f \.tex$ & t r & ! t t
+t       Run latex on file and show it with xdvi
+        latex %f && xdvi `basename %f .tex`.dvi
+
+=+ f ^part | f ^Part | f uue & t r
++ t t
+U       Uudecode marked news articles (needs work)
+        set %u
+        (
+        while [ -n "$1" ]; do # strip headers
+          FIRST=`sed 1q < $1|awk '{print $1}'`
+          cat $1 | sed '/^'"$FIRST"' /,/^$/d'; shift
+        done
+        ) |sed '/^$/d' |sed -n '/^begin 6/,/^end$/p' | uudecode
+        if [ "$?" != "0" ]; then
+          echo "Could not decode %t"
+          for i in %t; do
+            echo tag $i >>$MC_CONTROL_FILE
+            shift
+          done
+        fi
+        echo "Please test the output file before deleting anything"
+
+=+ f \.tar\.gz$ | f \.tar\.z$ | f \.tgz$ | f \.tpz$ | f \.tar\.Z$| f \.tar\.bz2$ & t r
+x       Extract the contents of a compressed tar file
+        unset EXT
+        echo %f|egrep -q "\.tar.bz2$" && EXT=tar_bz2
+        if [ "$EXT" = "tar_bz2" ]; then
+          bunzip2 -c %f | tar xvf -
+        else
+          gzip -dc %f | tar xvf -
+        fi
+
+#--- Per 29.08.2014 deaktiviert
+#= t r
+#+ ! t t
+#y       Gzip or gunzip current file
+#        unset DECOMP
+#        echo %f|egrep -q "\.gz$|\.z$|\.Z$" && DECOMP=-d
+#        gzip $DECOMP -v %f
+
+#--- Per 29.08.2014 deaktiviert
+#+ t t
+#Y       Gzip or gunzip tagged files
+#        for i in %t
+#        do
+#          unset DECOMP
+#          echo $i|egrep -q "\.gz$|\.z$|\.Z$" && DECOMP=-d
+#          gzip $DECOMP -v $i
+#        done
+
+#--- Per 29.08.2014 deaktiviert
+#+ ! t t
+#b       Bzip2 or bunzip2 current file
+#        unset DECOMP
+#        echo %f|egrep -q "\.bz2$" && DECOMP=-d
+#        bzip2 $DECOMP -v %f
+
+#--- Per 29.08.2014 deaktiviert
+#+ t t
+#B       Bzip2 or bunzip2 tagged files
+#        for i in %t
+#        do
+#          unset DECOMP
+#          echo $i|egrep -q "\.bz2$" && DECOMP=-d
+#          bzip2 $DECOMP -v $i
+#        done
+
++ f \.tar.gz$ | f \.tgz$ | f \.tpz$ | f \.tar.Z$ | f \.tar.z$ | f \.tar.bz2$ & t r & ! t t
+z       Extract compressed tar file to subdirectory
+        unset D
+        echo %f|egrep -q "\.tar.gz$" && EXT=tar_gz
+        echo %f|egrep -q "\.tgz$"    && EXT=tgz
+        echo %f|egrep -q "\.tpz$"    && EXT=tpz
+        echo %f|egrep -q "\.tar.Z$"    && EXT=tar_Z
+        echo %f|egrep -q "\.tar.z$"    && EXT=tar_z
+        echo %f|egrep -q "\.tar.bz2$"  && EXT=tar_bz2
+        case $EXT in
+          tar_gz) D="`basename %f .tar.gz`";;
+          tgz)    D="`basename %f .tgz`";;
+          tpz)    D="`basename %f .tpz`";;
+          tar_Z)  D="`basename %f .tar.Z`";;
+          tar_z)  D="`basename %f .tar.z`";;
+          tar_bz2) D="`basename %f .tar.bz2`";;
+        esac
+        if [ "$EXT" = "tar_bz2" ]; then
+            mkdir $D; cd $D && (bunzip2 -c ../%f | tar xvf -)
+        else
+            mkdir $D; cd $D && (gzip -dc ../%f | tar xvf -)
+        fi
+
++ f \.tar.F$ & t r & ! t t
+z       Extract compressed tar file to subdirectory
+        unset D
+        echo %f|egrep -q "\.tar.F$" && EXT=tar_F
+        case $EXT in
+          tar_F) D="`basename %f .tar.F`";;
+        esac
+        mkdir $D; cd $D && (freeze -dc ../%f | tar xvf -)
+
++ t t
+Z       Extract compressed tar files to subdirectories
+        set %u
+        while [ -n "$1" ]
+        do
+          unset D
+          echo $1|egrep -q "\.tar.gz$" && EXT=tar_gz
+          echo $1|egrep -q "\.tgz$"    && EXT=tgz
+          echo $1|egrep -q "\.tpz$"    && EXT=tpz
+          echo $1|egrep -q "\.tar.Z$"    && EXT=tar_Z
+          echo $1|egrep -q "\.tar.z$"    && EXT=tar_z
+          echo $1|egrep -q "\.tar.F$"    && EXT=tar_F
+          echo $1|egrep -q "\.tar.bz2$"  && EXT=tar_bz2
+          case $EXT in
+            tar_gz)  D="`basename $1 .tar.gz`";;
+            tgz)     D="`basename $1 .tgz`";;
+            tpz)     D="`basename $1 .tpz`";;
+            tar_Z)   D="`basename $1 .tar.Z`";;
+            tar_z)   D="`basename $1 .tar.z`";;
+            tar_F)   D="`basename $1 .tar.F`";;
+            tar_bz2) D="`basename $1 .tar.bz2`";;
+          esac
+          case $EXT in
+            tar_gz|tgz|tpz|tar_Z|tar_z) mkdir $D; (cd $D && gzip -dc ../$1 | tar xvf -)||echo tag $1 >>$MC_CONTROL_FILE;;
+            tar_F)                      mkdir $D; (cd $D && freeze -dc ../$1 | tar xvf -)||echo tag $1 >>$MC_CONTROL_FILE;;
+            tar_bz2)                    mkdir $D; (cd $D && bunzip2 -c ../$1 | tar xvf -)||echo tag $1 >>$MC_CONTROL_FILE
+          esac
+          shift
+        done
+
++ f \.gz$ | f \.tgz$ | f \.tpz$ | f \.Z$ | f \.z$ | f \.bz2$ & t r & ! t t
+c       Convert gz<->bz2, tar.gz<->tar.bz2 & tgz->tar.bz2
+        unset D
+        echo %f|egrep -q "\.tgz$"    && EXT=tgz
+        echo %f|egrep -q "\.tpz$"    && EXT=tpz
+        echo %f|egrep -q "\.Z$"    && EXT=Z
+        echo %f|egrep -q "\.z$"    && EXT=z
+        echo %f|egrep -q "\.gz$" && EXT=gz
+        echo %f|egrep -q "\.bz2$" && EXT=bz2
+        case $EXT in
+          tgz)    D="`basename %f .tgz`.tar";;
+          tpz)    D="`basename %f .tpz`.tar";;
+          gz) D="`basename %f .gz`";;
+          bz2) D="`basename %f .bz2`";;
+        esac
+        if [ "$EXT" = "bz2" ]; then
+            bunzip2 -v %f ; gzip -f9 -v $D
+        else
+            gunzip -v %f ; bzip2 -v --repetitive-best $D
+        fi
+
++ t t
+C       Convert gz<->bz2, tar.gz<->tar.bz2 & tgz->tar.bz2
+        set %u
+        while [ -n "$1" ]
+        do
+          unset D
+          echo %f|egrep -q "\.tgz$"    && EXT=tgz
+          echo %f|egrep -q "\.tpz$"    && EXT=tpz
+          echo %f|egrep -q "\.Z$"    && EXT=Z
+          echo %f|egrep -q "\.z$"    && EXT=z
+          echo %f|egrep -q "\.gz$" && EXT=gz
+          echo %f|egrep -q "\.bz2$" && EXT=bz2
+          case $EXT in
+              tgz)    D="`basename $1 .tgz`.tar";;
+              tpz)    D="`basename $1 .tpz`.tar";;
+              gz) D="`basename $1 .gz`";;
+              bz2) D="`basename $1 .bz2`";;
+          esac
+          if [ "$EXT" = "bz2" ]; then
+            (bunzip2 -v $1 ; gzip -f9 -v $D)||echo tag $1 >>$MC_CONTROL_FILE
+          else
+            (gunzip -v $1 ; bzip2 -v --repetitive-best $D)||echo tag $1 >>$MC_CONTROL_FILE
+          fi
+          shift
+        done
+
++ x /usr/bin/open | x /usr/local/bin/open & x /bin/sh
+o       Open next a free console
+        open -s -- sh
+
