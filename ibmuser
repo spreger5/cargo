@@ -1,0 +1,184 @@
+#!/usr/bin/perl
+
+use strict; use warnings;
+use Getopt::Long;
+use Data::Dumper;
+
+#----------------------------------------------------------------------------------------------
+#  Parameter: -ibmuser|cicuser [kann] ... IBM-User erzwingen bzw. bewusst (mit Praefix 'no')
+#                                         deaktivieren. Ohne diese Option wird dieser Schalter
+#                                         aus der aktuellen User-ID abgeleitet.
+#                                         Ueber diesen Schalter wird u.a. die UI-Sprache abgeleitet.
+#
+
+# ---- Globale Einstellungen -------------------------------------------------------
+my %sGblOptions = (  # globale Einstellungen. Anpassung ueber Befehlszeile moeglich
+   'ibmuser'  => '?',       # User ist ein IBM-User (bzw. vom CIC) J/N. Dient der Sprachsteuerung
+   'debug'    =>  0 ,
+                  );
+my $bDebug;
+my $bIsIbmUser;                             # Hinweis, ob der User ein IBM-User bzw. vom CIC ist J/N
+
+my $sHostname = qx(hostname); chomp $sHostname;
+my $sLoginId = (GetUID())[1];
+
+   #--- Hilfsvariablen ---
+
+my ($i, $j, $farbe, $x1, $x2, $x3, $sShellCmd);
+
+#-----------------------------------------------------------------------------------
+#---   Operationaler Verarbeitungsteil   -------------------------------------------
+#-----------------------------------------------------------------------------------
+
+ GetOptions(
+            'ibmuser|cicuser!' => \$sGblOptions{'ibmuser'},
+            'debug|verbose!'   => \$sGblOptions{'debug'},
+           );
+
+ $bDebug = $sGblOptions{'debug'};
+ if (defined($ENV{'DEBUG'})) {
+    $bDebug = 1;
+ }
+
+ PrintGblOptions() if $bDebug;  # Rohwerte (d.h. 1:1) der Optionen ex Befehlszeile ausgeben
+
+ #--- Befehlszeilenoptionen auf Plausibilitaet pruefen und ggf. normieren
+
+ if (!defined($sGblOptions{'ibmuser'})  ||  $sGblOptions{'ibmuser'} eq '?') {
+
+    # Keine Option '-ibmuser|-cicuser' spezifiziert, deshalb wird diese aus der Login-ID abgeleitet.
+    #
+    # User-IDs von externen MAs, wie den IBM/CIC-Usern, sind 8 (statt 7) Stellen lang, z.B.
+    # rpci9419 rpci9422 rpci9423 rpci9425 rpci9426
+
+#   $sLoginId = 'rpci9999';     # Prototyping
+
+    if ($sLoginId =~ m/^rpci9\d{3}$/i) {
+       $sGblOptions{'ibmuser'} = 1;
+    }
+    else {
+       $sGblOptions{'ibmuser'} = 0;
+    }
+
+    if ($bDebug) {
+       print "No Option '-ibmuser|-cicuser' specified. Login-ID '${sLoginId}' defaulted as IBM/CIC-User: ",
+             $sGblOptions{'ibmuser'} ? 'true' : 'false', "\n";
+    }
+ }
+
+ $bIsIbmUser = $sGblOptions{'ibmuser'};
+ if ($bDebug) {
+    print "Attribute 'IBM/CIC-User' is ", $bIsIbmUser, " (", $bIsIbmUser ? 'true' : 'false', ")\n";
+ }
+
+
+ exit 0;
+
+#-----------------------------------------------------------------------------------
+#---   Subroutinen und Funktionen   ------------------------------------------------
+#-----------------------------------------------------------------------------------
+
+ #-----------------------------------------------------------------------------------
+ # Name: PrintGblOptions()
+ #
+ # Zweck: Die aktuellen Werte der Keys des globalen Optionen-Hashes ausgeben.
+ #
+ #        Diese Routine sollte zu Programmbeginn direkt nach dem Entgegennehmen
+ #        der Optionen ex Befehlszeile mittels Funktion GetOptions()
+ #        aufgerufen werden.
+ #
+ # Parameter: keine
+ #
+ # Interne Routinen: keine
+ #
+ # Globale Groeszen: Zugriffe R=Lesen, W=Schreiben, U=Aktualisieren
+ #
+ #                 R - %sGblOptions ... Hash mit den globalen Optionen ex Befehlszeile
+ #
+ # Ergebnis: 1 (immer)
+ #-----------------------------------------------------------------------------------
+
+sub PrintGblOptions {
+
+ my $iMaxOptLng = 1;        # max. Laenge der Namen der Optionen-Keys
+
+  printf "\n%s\n\n", 'Optionen, wie sie 1:1 aus der Befehlszeile uebernommen oder defaultet wurden:';
+
+  #--- Zur "optischen" Aufbereitung wird die max. Laenge der Namen der Optionen-Keys ermittelt
+  foreach my $k (keys %sGblOptions) {
+     my $l = length($k);
+     $iMaxOptLng = $l if $l > $iMaxOptLng;
+  }
+
+  #--- Key-Namen und deren Werte ausgeben. Der Wert darf auch ein Array[-Pointer] sein
+  foreach my $k (sort {lc($a) cmp lc($b)} keys %sGblOptions) {      # Key-Namen lexikographisch sortiert
+
+     if (ref($sGblOptions{$k}) =~ m/ARRAY/i) {
+        my $aPtr = $sGblOptions{$k};
+
+        printf "   %-${iMaxOptLng}s ist: %d Elemente\n", $k, scalar(@$aPtr);
+
+        foreach my $i (0 .. @$aPtr-1) {
+           printf "      %2d. >%s<\n", $i+1, $aPtr->[$i];
+        }
+     }
+     else {
+        printf "   %-${iMaxOptLng}s ist: >%s<\n", $k, $sGblOptions{$k};
+     }
+  }
+  print "\n";
+
+  return 1;
+
+}
+
+ #----------------------------------------------------------------------------------#
+
+ #-----------------------------------------------------------------------------------
+ # Name: GetUID()
+ #
+ # Zweck: Die aktuelle User-ID ermitteln (Textform). Da es unter Unix moeglich ist, mittels Befehl
+ #        'su' den User-Kontext zu wechseln, retourniert diese Routine die gerade aktuelle
+ #        User-ID und jene, mit der die Anmeldung erfolgte (Login-ID).
+ #
+ #
+ #   Gegenueberstellung der einzelnen Perl-Konstrukte zum Thema User-ID/Login-Id/Home-Verzeichnis
+ #   - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ #
+ #                      | Login als
+ #   Perl-Konstrukt     |  rpri275       su wasys       su - wasys      Bemerkung
+ #   -------------------+-------------------------------------------------------------------------------
+ #   $< (reale User-Id) |    472           510              510         gerade aktuelle User-ID
+ #   $> (eff.  User-Id) |    472           510              510         gerade aktuelle User-ID
+ #                      |
+ #   getlogin           |  rpri275       rpri275          rpri275       User, mit dem Anmeldung erfolgte
+ #                      |
+ #   getpwuid $<        |  rpri275        wasys            wasys        !!! in Win32 nicht verfuegbar !!!
+ #                      |
+ #   chdir              | /u/rpri275    /u/rpri275      /home/wasys     !!! in Win32 nicht verfuegbar !!!
+ #
+ #
+ # Parameter: keine
+ #
+ # Interne Routinen: keine
+ #
+ # Benoetigte Module: keine
+ #
+ # Globale Groeszen: keine
+ #
+ # Ergebnis: aktuelle User-ID und Login-ID (Textformen, nicht die internen numerischen IDs)
+ #-----------------------------------------------------------------------------------
+
+sub GetUID {
+
+ my @sUid;                           # Ergebnis, User-ID und Login-ID
+
+  if ($^O eq "MSWin32") { $sUid[0] = $<; } else { $sUid[0] = getpwuid($<)}
+  $sUid[1] = getlogin;
+
+  return @sUid;
+
+}
+
+ #----------------------------------------------------------------------------------#
+
